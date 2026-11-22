@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v0.1 — браузерный прототип автомобильного дерби">
-  <title>Wreck Circuit — Driving Prototype v0.1</title>
+  <meta name="description" content="Wreck Circuit v0.2 — браузерный прототип автомобильного дерби">
+  <title>Wreck Circuit — Driving Prototype v0.2</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -18,6 +18,7 @@
     .speed-number { font-size: clamp(22px, 3.2vw, 31px); font-weight: 800; line-height: 1; min-width: 36px; text-align: right; }
     .speed-unit { font-size: 10px; color: #dae1e8; font-weight: 650; }
     .gear { font-size: 11px; color: #f9c45e; font-weight: 800; border-left: 1px solid #677380; padding-left: 8px; }
+    .version { font-size: 9px; color: #c5ced8; font-weight: 650; padding-left: 3px; }
     .restart { pointer-events: auto; border: 1px solid rgba(255,255,255,.15); border-radius: 11px; color: white; background: rgba(18,27,36,.8); padding: 12px 14px; font: 700 13px system-ui,sans-serif; cursor: pointer; -webkit-tap-highlight-color: transparent; }
     .restart:active { background: #344454; }
     .help { z-index: 2; position: absolute; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); background: rgba(18,27,36,.6); color: #fff; border-radius: 9px; padding: 9px 14px; white-space: nowrap; font-size: 12px; pointer-events: none; }
@@ -50,7 +51,7 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.2</span></div>
     <button id="restart" class="restart" type="button">↻ Перезапуск</button>
   </div>
   <div class="help">W / ↑ газ · S / ↓ тормоз и задний ход · A D / ← → поворот · Space ручник · R перезапуск</div>
@@ -138,11 +139,8 @@
     }
     block(car, 1.9, 0.14, 0.12, rubberMat, 0, 0.6, 2.23);
     block(car, 1.9, 0.14, 0.12, rubberMat, 0, 0.6, -2.23);
-    // Flat dark patch is a lightweight substitute for dynamic shadow maps.
-    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(3.1, 5.2), new THREE.MeshBasicMaterial({ color: 0x27303b, transparent: true, opacity: 0.13, depthWrite: false }));
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = 0.016;
-    scene.add(shadow);
+    // v0.2: removed the old flat rectangle "shadow" — it visually crossed the car.
+    // Proper contact shadows will return with the graphics pass.
 
     const speedEl = document.getElementById('speed');
     const gearEl = document.getElementById('gear');
@@ -195,10 +193,33 @@
     const cameraDesired = new THREE.Vector3();
     const cameraTarget = new THREE.Vector3();
     let heading = 0;
+    let steering = 0;
+
+    // Arcade tuning. Units: meters, seconds, radians (not a rigid-body simulator).
+    const drive = Object.freeze({
+      maxForwardSpeed: 19.5,    // 70 km/h
+      maxReverseSpeed: 7,       // 25 km/h
+      throttleAcceleration: 5.6,
+      reverseAcceleration: 3.3,
+      brakeDeceleration: 11.5,
+      coastResistance: 0.65,
+      handbrakeResistance: 1.25,
+      steeringResponse: 10.0,
+      turningRate: 1.4,
+      handbrakeTurningRate: 1.85,
+      lateralGrip: 8.0,
+      handbrakeLateralGrip: 1.0,
+    });
+    const moveToward = (current, target, maxStep) => {
+      if (current < target) return Math.min(current + maxStep, target);
+      return Math.max(current - maxStep, target);
+    };
+
     function resetCar() {
       position.set(0, 0, 0);
       velocity.set(0, 0, 0);
       heading = 0;
+      steering = 0;
       car.position.copy(position);
       car.rotation.y = heading;
       camera.position.set(0, 9.0, -13.0);
@@ -212,47 +233,63 @@
       const gas = held('gas');
       const brake = held('brake');
       const handbrake = held('handbrake');
-      const steer = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
+      const steerTarget = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
+      steering += (steerTarget - steering) * (1 - Math.exp(-drive.steeringResponse * dt));
+
+      // Important: Three.js positive Y rotation points the car's +Z nose toward
+      // world +X, which appears LEFT to our rear-facing chase camera.
+      // Therefore turning right must DECREASE heading (and left increases it).
       forward.set(Math.sin(heading), 0, Math.cos(heading));
       let forwardSpeed = velocity.dot(forward);
-      const turnStrength = Math.min(1, Math.abs(forwardSpeed) / 6.0);
-      heading += steer * Math.sign(forwardSpeed) * (handbrake ? 1.65 : 1.3) * turnStrength * dt;
+      const direction = Math.abs(forwardSpeed) > 0.25 ? Math.sign(forwardSpeed) : 0;
+      const lowSpeedAssist = Math.min(1, Math.abs(forwardSpeed) / 5.0);
+      const highSpeedDamping = 1 - 0.3 * Math.min(1, Math.abs(forwardSpeed) / drive.maxForwardSpeed);
+      const yawRate = handbrake ? drive.handbrakeTurningRate : drive.turningRate;
+      heading -= steering * direction * lowSpeedAssist * highSpeedDamping * yawRate * dt;
+
+      // Preserve sideways momentum when the car changes direction. Strong grip
+      // usually absorbs sliding; handbrake drastically reduces lateral grip.
       forward.set(Math.sin(heading), 0, Math.cos(heading));
       forwardSpeed = velocity.dot(forward);
-      let sideX = velocity.x - forward.x * forwardSpeed;
-      let sideZ = velocity.z - forward.z * forwardSpeed;
+      let lateralX = velocity.x - forward.x * forwardSpeed;
+      let lateralZ = velocity.z - forward.z * forwardSpeed;
 
-      if (gas && !brake) {
-        forwardSpeed += (forwardSpeed < 0 ? 11 : 4.7) * dt;
-      } else if (brake && !gas) {
-        forwardSpeed -= (forwardSpeed > 0.3 ? 10 : 3.3) * dt;
-      } else if (gas && brake) {
-        forwardSpeed *= Math.exp(-7 * dt);
+      if (gas && brake) {
+        forwardSpeed = moveToward(forwardSpeed, 0, drive.brakeDeceleration * dt);
+      } else if (gas) {
+        const acceleration = forwardSpeed < -0.2 ? drive.brakeDeceleration : drive.throttleAcceleration;
+        forwardSpeed += acceleration * dt;
+      } else if (brake) {
+        const deceleration = forwardSpeed > 0.2 ? drive.brakeDeceleration : drive.reverseAcceleration;
+        forwardSpeed -= deceleration * dt;
       } else {
-        forwardSpeed *= Math.exp(-0.85 * dt);
+        forwardSpeed *= Math.exp(-drive.coastResistance * dt);
       }
-      if (handbrake) forwardSpeed *= Math.exp(-1.7 * dt);
-      forwardSpeed = THREE.MathUtils.clamp(forwardSpeed, -7, 19.5);
-      const grip = handbrake ? 0.95 : 7.5;
+      if (handbrake) forwardSpeed *= Math.exp(-drive.handbrakeResistance * dt);
+      forwardSpeed = THREE.MathUtils.clamp(forwardSpeed, -drive.maxReverseSpeed, drive.maxForwardSpeed);
+      const grip = handbrake ? drive.handbrakeLateralGrip : drive.lateralGrip;
       const sideDecay = Math.exp(-grip * dt);
-      sideX *= sideDecay;
-      sideZ *= sideDecay;
-      velocity.set(forward.x * forwardSpeed + sideX, 0, forward.z * forwardSpeed + sideZ);
+      lateralX *= sideDecay;
+      lateralZ *= sideDecay;
+      velocity.set(forward.x * forwardSpeed + lateralX, 0, forward.z * forwardSpeed + lateralZ);
       if (velocity.lengthSq() < 0.0004 && !gas && !brake) velocity.set(0, 0, 0);
       position.addScaledVector(velocity, dt);
 
-      // Simple wall collision, not yet a rigid-body physics engine.
-      const limit = 38.1;
-      if (position.x > limit) { position.x = limit; velocity.x = Math.min(0, velocity.x); }
-      if (position.x < -limit) { position.x = -limit; velocity.x = Math.max(0, velocity.x); }
-      if (position.z > limit) { position.z = limit; velocity.z = Math.min(0, velocity.z); }
-      if (position.z < -limit) { position.z = -limit; velocity.z = Math.max(0, velocity.z); }
+      // Prevent the complete rectangular body (not just its centre) from
+      // entering arena walls. The body is 2.4 m wide and 4.64 m long.
+      const cs = Math.abs(Math.cos(heading));
+      const sn = Math.abs(Math.sin(heading));
+      const halfWidth = 1.2 * cs + 2.32 * sn;
+      const halfLength = 1.2 * sn + 2.32 * cs;
+      const xLimit = 39.98 - halfWidth;
+      const zLimit = 39.98 - halfLength;
+      if (position.x > xLimit) { position.x = xLimit; velocity.x = Math.min(0, velocity.x); }
+      if (position.x < -xLimit) { position.x = -xLimit; velocity.x = Math.max(0, velocity.x); }
+      if (position.z > zLimit) { position.z = zLimit; velocity.z = Math.min(0, velocity.z); }
+      if (position.z < -zLimit) { position.z = -zLimit; velocity.z = Math.max(0, velocity.z); }
+
       car.position.copy(position);
       car.rotation.y = heading;
-      shadow.position.x = position.x;
-      shadow.position.z = position.z;
-      shadow.rotation.z = 0;
-      shadow.rotation.set(-Math.PI / 2, 0, -heading);
       speedEl.textContent = String(Math.round(velocity.length() * 3.6));
       gearEl.textContent = forwardSpeed > 0.25 ? 'D' : forwardSpeed < -0.25 ? 'R' : 'N';
     }
