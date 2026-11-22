@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v0.7 — лаборатория деформации кузова">
-  <title>Wreck Circuit — Body Damage Lab v0.7</title>
+  <meta name="description" content="Wreck Circuit v0.8 — отлетающие детали кузова">
+  <title>Wreck Circuit — Detachable Parts Lab v0.8</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -47,6 +47,11 @@
     /* Lab-only impact controls. Kept between steering and pedals on phones. */
     .damage-panel { position:absolute; z-index:4; left:50%; transform:translateX(-50%); bottom:max(14px,env(safe-area-inset-bottom));
       display:flex; flex-direction:column; align-items:center; gap:5px; pointer-events:none; max-width:calc(100vw - 330px); }
+    .lab-tabs { display:flex; gap:4px; pointer-events:auto; }
+    .lab-tabs button { border:1px solid #6a7888; background:rgba(20,30,42,.86); color:#f1f5f9; padding:4px 11px;
+      border-radius:7px; font:750 10px system-ui,sans-serif; touch-action:manipulation; cursor:pointer; }
+    .lab-tabs button.active { background:#e7b75e; color:#23272d; border-color:#ffda8f; }
+    .damage-buttons[hidden] { display:none!important; }
     .damage-label { color:#fff; font-weight:800; font-size:10px; text-shadow:0 1px 5px #101820; letter-spacing:.045em; white-space:nowrap; }
     .damage-buttons { display:flex; gap:4px; justify-content:center; flex-wrap:nowrap; pointer-events:auto; }
     .damage-buttons button { background:rgba(23,32,43,.84); border:1px solid #788696; color:#fff; border-radius:8px;
@@ -86,7 +91,7 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.7</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.8</span></div>
     <div class="hud-actions">
       <button id="inspect-toggle" class="restart" type="button" aria-pressed="false" aria-label="Переключить камеру осмотра">👁 Осмотр</button>
       <button id="audio-toggle" class="restart audio-toggle" type="button" aria-pressed="true" aria-label="Выключить звук">🔊 Звук</button>
@@ -102,7 +107,7 @@
     </div>
     <div id="mode-description" class="mode-description">Тяжёлый автомобиль · сбалансированное сцепление</div>
   </div>
-  <div class="help">WASD / стрелки — езда · Space — ручник · R — сброс · C — осмотр · 4/5/6/7 — вмятины</div>
+  <div class="help">WASD / стрелки — езда · Space — ручник · R — сброс · C — осмотр · 4–7 — вмятины · 8/9/-/= — отрыв</div>
   <div class="touch-controls" aria-label="Кнопки управления на телефоне">
     <div class="group">
       <button class="ctrl" data-control="left" type="button" aria-label="Влево">◀</button>
@@ -115,13 +120,24 @@
     </div>
   </div>
   <div class="damage-panel" aria-label="Тестирование повреждений кузова">
-    <div class="damage-label">ТЕСТ ВМЯТИН · <span id="damage-counter">0</span> ударов</div>
-    <div class="damage-buttons">
+    <div class="damage-label" id="lab-status"><span id="lab-heading">ВМЯТИНЫ</span> · <span id="damage-counter">0</span> <span id="lab-unit">ударов</span></div>
+    <div class="lab-tabs" role="group" aria-label="Выбор теста кузова">
+      <button id="lab-tab-dents" class="active" type="button" aria-pressed="true">Вмятины</button>
+      <button id="lab-tab-detach" type="button" aria-pressed="false">Отрыв деталей</button>
+    </div>
+    <div class="damage-buttons" id="lab-dent-buttons">
       <button data-damage="front" type="button">НОС</button>
       <button data-damage="left" type="button">ЛЕВО</button>
       <button data-damage="right" type="button">ПРАВО</button>
       <button data-damage="rear" type="button">КОРМА</button>
       <button id="damage-clear" class="clear-damage" type="button">СБРОС</button>
+    </div>
+    <div class="damage-buttons" id="lab-detach-buttons" hidden>
+      <button data-detach="hood" type="button">КАПОТ</button>
+      <button data-detach="trunk" type="button">БАГАЖ</button>
+      <button data-detach="front_bumper" type="button">БАМП. П</button>
+      <button data-detach="rear_bumper" type="button">БАМП. З</button>
+      <button id="detach-clear" class="clear-damage" type="button">СБРОС</button>
     </div>
   </div>
   <div class="portrait-note"><span class="rotate-symbol">↻</span>Поверните телефон горизонтально,<br>чтобы начать заезд</div>
@@ -402,6 +418,13 @@
       edge(visualBody,[side*.85,.48,.76],[side*.69,1.06,.46],.040,paint);
     }
 
+    // Black cavities remain visible after the hood or boot lid breaks free.
+    const bayMaterial=new THREE.MeshLambertMaterial({color:0x242a30,side:THREE.DoubleSide});
+    const engineMaterial=new THREE.MeshLambertMaterial({color:0x5b6061});
+    block(visualBody,1.48,.030,1.32,bayMaterial,0,.315,1.44);
+    block(visualBody,1.32,.14,.76,engineMaterial,0,.35,1.43);
+    block(visualBody,.72,.08,.55,frontMetal,0,.455,1.50);
+    block(visualBody,1.52,.035,.86,bayMaterial,0,.315,-1.66);
     // Front and rear fascia are detachable, with individual head- and tail-lamps.
     solidPart(visualBody,'front_fascia',1.94,.32,.13,paintShade,0,.21,2.15,true);
     solidPart(visualBody,'grille',1.12,.23,.035,frontMetal,0,.25,2.231,true);
@@ -546,9 +569,11 @@
       if(changed){
         totalTestHits++;
         damageCounter.textContent=String(totalTestHits);
+        if(typeof updateLabStatus==='function') updateLabStatus();
       }
     }
     function resetDamage(){
+      restoreDetachedParts();
       totalTestHits=0;
       damageCounter.textContent='0';
       for(const mesh of deformableMeshes.values()){
@@ -661,6 +686,123 @@
     world.createCollider(RAPIER.ColliderDesc.cuboid(1.2,.65,1.2)
       .setDensity(35).setFriction(.72).setRestitution(.08), movingBody);
     staticBox(1.7,.9,1.7,10,.9,18);
+
+    // v0.8: detached parts use their own lightweight rigid bodies. The chassis
+    // collider and all four raycast wheels remain completely unchanged.
+    // One body per part, at most four loose pieces per player vehicle.
+    const DETACH_SPECS=Object.freeze({
+      hood:          {half:[.72,.040,.67], outward: 1, launch: 4.5, spin: 6.0},
+      trunk:         {half:[.76,.040,.44], outward:-1, launch: 4.1, spin: 5.2},
+      front_bumper:  {half:[1.06,.08,.095],outward: 1, launch: 5.3, spin: 5.5},
+      rear_bumper:   {half:[1.06,.08,.095],outward:-1, launch: 5.0, spin: 5.5},
+    });
+    const detachedParts=new Map();
+    const tempRotation=new THREE.Quaternion();
+    const tempKick=new THREE.Vector3();
+    const labStatus=document.getElementById('lab-status');
+    const labHeading=document.getElementById('lab-heading');
+    const labUnit=document.getElementById('lab-unit');
+    const labDentButtons=document.getElementById('lab-dent-buttons');
+    const labDetachButtons=document.getElementById('lab-detach-buttons');
+    let labMode='dents';
+    function updateLabStatus(){
+      labHeading.textContent=labMode==='dents'?'ВМЯТИНЫ':'ОТРЫВ';
+      damageCounter.textContent=labMode==='dents'?String(totalTestHits):`${detachedParts.size}/4`;
+      labUnit.textContent=labMode==='dents'?'ударов':'деталей';
+      document.querySelectorAll('[data-detach]').forEach(button=>{
+        const missing=detachedParts.has(button.dataset.detach);
+        button.disabled=missing;
+        button.style.opacity=missing?'.40':'1';
+      });
+    }
+    function setLabMode(next){
+      labMode=next;
+      labDentButtons.hidden=next!=='dents';
+      labDetachButtons.hidden=next!=='detach';
+      for(const [id,mode] of [['lab-tab-dents','dents'],['lab-tab-detach','detach']]){
+        const button=document.getElementById(id);
+        button.classList.toggle('active',next===mode);
+        button.setAttribute('aria-pressed',String(next===mode));
+      }
+      updateLabStatus();
+    }
+    document.getElementById('lab-tab-dents').addEventListener('click',()=>setLabMode('dents'));
+    document.getElementById('lab-tab-detach').addEventListener('click',()=>setLabMode('detach'));
+
+    function detachPart(name){
+      const spec=DETACH_SPECS[name];
+      if(!spec || detachedParts.has(name)) return false;
+      const mesh=bodyParts.get(name);
+      if(!mesh || mesh.parent!==visualBody) return false;
+      // World transform of the current visible panel, including cosmetic lean.
+      visualBody.updateWorldMatrix(true,false);
+      mesh.geometry.computeBoundingBox();
+      const homePosition=mesh.position.clone();
+      const homeQuaternion=mesh.quaternion.clone();
+      const homeScale=mesh.scale.clone();
+      const localCenter=mesh.geometry.boundingBox.getCenter(new THREE.Vector3());
+      localCenter.add(homePosition);
+      const worldCenter=visualBody.localToWorld(localCenter.clone());
+      visualBody.getWorldQuaternion(tempRotation);
+      // A new local origin at the fragment's center prevents enormous rotation
+      // arcs (the old mesh vertices were expressed in vehicle coordinates).
+      const group=new THREE.Group();
+      group.name=`loose_${name}`;
+      group.position.copy(worldCenter);
+      group.quaternion.copy(tempRotation);
+      scene.add(group);
+      mesh.removeFromParent();
+      group.add(mesh);
+      mesh.position.copy(homePosition).sub(localCenter);
+      mesh.quaternion.copy(homeQuaternion);
+      mesh.scale.copy(homeScale);
+
+      const body=world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(worldCenter.x,worldCenter.y,worldCenter.z)
+        .setRotation({x:tempRotation.x,y:tempRotation.y,z:tempRotation.z,w:tempRotation.w})
+        .setLinearDamping(.65).setAngularDamping(1.25).setCcdEnabled(true));
+      world.createCollider(RAPIER.ColliderDesc.cuboid(...spec.half)
+        .setDensity(name.endsWith('bumper')?75:32)
+        .setRestitution(.22).setFriction(.78),body);
+      // Inherit the car's velocity, with a visible upward and outward kick.
+      const carVelocity=carBody.linvel();
+      tempKick.set(0,0,spec.outward).applyQuaternion(tempRotation);
+      body.setLinvel({
+        x:carVelocity.x+tempKick.x*spec.launch,
+        y:carVelocity.y+2.5+Math.max(0,tempKick.y)*spec.launch,
+        z:carVelocity.z+tempKick.z*spec.launch,
+      },true);
+      body.setAngvel({x:spec.outward*spec.spin,y:1.8,z:2.2},true);
+      detachedParts.set(name,{mesh,group,body,homePosition,homeQuaternion,homeScale});
+      updateLabStatus();
+      return true;
+    }
+    function syncDetachedParts(){
+      for(const {group,body} of detachedParts.values()){
+        const p=body.translation(),q=body.rotation();
+        group.position.set(p.x,p.y,p.z);
+        group.quaternion.set(q.x,q.y,q.z,q.w);
+      }
+    }
+    function restoreDetachedParts(){
+      for(const {mesh,group,body,homePosition,homeQuaternion,homeScale} of detachedParts.values()){
+        // Remove loose physics first, then restore exactly the original panel.
+        world.removeRigidBody(body);
+        mesh.removeFromParent();
+        visualBody.add(mesh);
+        mesh.position.copy(homePosition);
+        mesh.quaternion.copy(homeQuaternion);
+        mesh.scale.copy(homeScale);
+        scene.remove(group);
+      }
+      detachedParts.clear();
+      updateLabStatus();
+    }
+    document.querySelectorAll('[data-detach]').forEach(button=>{
+      button.addEventListener('click',()=>detachPart(button.dataset.detach));
+    });
+    document.getElementById('detach-clear').addEventListener('click',resetDamage);
+    setLabMode('dents');
 
     // Three deliberately different starting points, not final handling tuning.
     const PRESETS = Object.freeze({
@@ -867,6 +1009,8 @@
       const dentKeys={Digit4:'front',Digit5:'left',Digit6:'right',Digit7:'rear'};
       if(dentKeys[event.code]) { event.preventDefault(); if(!event.repeat) applyTestDent(dentKeys[event.code]); return; }
       if(event.code==='Digit0') { event.preventDefault(); if(!event.repeat) resetDamage(); return; }
+      const detachKeys={Digit8:'hood',Digit9:'trunk',Minus:'front_bumper',Equal:'rear_bumper'};
+      if(detachKeys[event.code]) { event.preventDefault(); if(!event.repeat) detachPart(detachKeys[event.code]); return; }
       if (event.code === 'Digit1') { if (!event.repeat) selectPreset('arcade'); return; }
       if (event.code === 'Digit2') { if (!event.repeat) selectPreset('derby'); return; }
       if (event.code === 'Digit3') { if (!event.repeat) selectPreset('drift'); return; }
@@ -1052,6 +1196,7 @@
       const mt=movingBody.translation(), mq=movingBody.rotation();
       movingMesh.position.set(mt.x,mt.y,mt.z);
       movingMesh.quaternion.set(mq.x,mq.y,mq.z,mq.w);
+      syncDetachedParts();
       const v=carBody.linvel();
       const speedAlong=v.x*forward.x+v.z*forward.z;
       speedEl.textContent=String(Math.round(Math.hypot(v.x,v.z)*3.6));
@@ -1248,7 +1393,7 @@
     frame();
   } catch (error) {
     console.error('Wreck Circuit startup failed:', error);
-    showError('Не удалось запустить 3D-сцену v0.7: ' + (error?.message || String(error)));
+    showError('Не удалось запустить 3D-сцену v0.8: ' + (error?.message || String(error)));
   }
 </script>
 </body>
