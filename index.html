@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v0.4.1 — исправление автомобильной физики">
-  <title>Wreck Circuit — Vehicle Physics Lab v0.4.1</title>
+  <meta name="description" content="Wreck Circuit v0.4.2 — настройка управляемости и устойчивости">
+  <title>Wreck Circuit — Vehicle Physics Lab v0.4.2</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -62,7 +62,7 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.4.1</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.4.2</span></div>
     <button id="restart" class="restart" type="button">↻ Перезапуск</button>
   </div>
   <div class="mode-panel" role="group" aria-label="Режим управления">
@@ -151,7 +151,7 @@
       block(scene, 2, 0.15, 2, curbMat, x, 0.075, z);
     }
 
-    // ----------------- v0.4: raycast-wheel vehicle -----------------
+    // ----------------- v0.4.2: tuned raycast-wheel vehicle -----------------
     // All car parts are simple shapes. Local +Z is the nose; the physics
     // body's center is the car group's origin. Each wheel is visual only;
     // tire forces and suspension are calculated by Rapier raycasts.
@@ -186,15 +186,25 @@
     }
     const carBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(0, 1.06, 0)
-      .setLinearDamping(0.08)
-      .setAngularDamping(0.42)
+      .setLinearDamping(0.075)
+      .setAngularDamping(0.30)
       .setCcdEnabled(true));
-    // ~1000 kg, simple solid box, no simulated physical wheel colliders.
+    // Explicit mass properties place the center of mass LOWER than the body
+    // origin. Keeping the collider at its real location avoids an invisible
+    // collision box shifted below the rendered car.
+    // Inertias (kg m^2): X = pitch, Y = yaw, Z = roll.
+    const CAR_MASS = 1040;
+    const CENTER_OF_MASS_Y = -0.38;
     world.createCollider(RAPIER.ColliderDesc.cuboid(.95, .35, 2.06)
-      .setDensity(170).setFriction(.65).setRestitution(.04), carBody);
+      .setMassProperties(
+        CAR_MASS,
+        { x:0, y:CENTER_OF_MASS_Y, z:0 },
+        { x:1750, y:2200, z:1100 },
+        { x:0, y:0, z:0, w:1 }
+      ).setFriction(.62).setRestitution(.02), carBody);
     const carMass = carBody.mass();
     const vehicle = world.createVehicleController(carBody);
-    // FIX v0.4.1: Rapier's raycast vehicle uses local +X as forward by default.
+    // FIX v0.4.2: Rapier's raycast vehicle uses local +X as forward by default.
     // This project's car mesh and wheel positions use local +Z as the nose.
     // Without this, wheel traction is calculated along the WRONG axis.
     const forwardAxisSetter = Object.getOwnPropertyDescriptor(
@@ -227,8 +237,8 @@
         { x:-1, y:0, z:0 },
         WHEEL_REST_LENGTH, WHEEL_RADIUS
       );
-      vehicle.setWheelMaxSuspensionTravel(i, .24);
-      vehicle.setWheelMaxSuspensionForce(i, 26000);
+      vehicle.setWheelMaxSuspensionTravel(i, .20);
+      vehicle.setWheelMaxSuspensionForce(i, 22000);
       const pivot = new THREE.Group();
       const spinner = new THREE.Group();
       spinner.add(new THREE.Mesh(tireGeometry, rubberMat));
@@ -254,31 +264,31 @@
     // Three deliberately different starting points, not final handling tuning.
     const PRESETS = Object.freeze({
       arcade: {
-        name: 'Arcade', description: 'Лёгкое руление · больше сцепления',
-        engine: 2700, reverse: 1350, brake: 190, handbrake: 360,
-        steer: .49, steerSpeed: 9.5, steerFade: .46, maxSpeed: 21,
-        frontSide: 1.40, rearSide: 1.46, slip: 8.0,
-        handbrakeRearSide: .46, handbrakeRearSlip: 1.2,
-        spring: 31, compression: 4.1, relaxation: 4.5,
-        downforce: 0, yawAssist: .62,
+        name: 'Arcade', description: 'Быстрый отклик · устойчивое сцепление',
+        engine: 4100, reverse: 2150, brake: 25, handbrake: 19,
+        steer: .50, steerSpeed: 10.0, steerFade: .48, maxSpeed: 24,
+        frontSide: 1.28, rearSide: 1.37, slip: 5.2,
+        handbrakeRearSide: .48, handbrakeRearSlip: 1.1,
+        spring: 36, compression: 4.0, relaxation: 4.4,
+        downforce: 0, yawAssist: .60, uprightSpring: 7700, uprightDamping: 1900,
       },
       derby: {
-        name: 'Derby', description: 'Тяжёлый кузов · контролируемый снос',
-        engine: 2400, reverse: 1200, brake: 205, handbrake: 400,
-        steer: .46, steerSpeed: 7.2, steerFade: .51, maxSpeed: 19.5,
-        frontSide: 1.25, rearSide: 1.08, slip: 6.5,
-        handbrakeRearSide: .30, handbrakeRearSlip: .85,
-        spring: 27, compression: 4.6, relaxation: 5.0,
-        downforce: 0, yawAssist: .42,
+        name: 'Derby', description: 'Бодрый разгон · тяжёлый и устойчивый кузов',
+        engine: 3800, reverse: 1950, brake: 24, handbrake: 18,
+        steer: .49, steerSpeed: 8.0, steerFade: .49, maxSpeed: 23,
+        frontSide: 1.22, rearSide: 1.14, slip: 4.7,
+        handbrakeRearSide: .34, handbrakeRearSlip: .92,
+        spring: 34, compression: 4.3, relaxation: 4.7,
+        downforce: 0, yawAssist: .36, uprightSpring: 6700, uprightDamping: 1700,
       },
       drift: {
-        name: 'Drift', description: 'Скользит задняя ось · учись контррулить',
-        engine: 2950, reverse: 1200, brake: 180, handbrake: 350,
-        steer: .54, steerSpeed: 8.5, steerFade: .38, maxSpeed: 22,
-        frontSide: 1.42, rearSide: .70, slip: 4.2,
-        handbrakeRearSide: .18, handbrakeRearSlip: .55,
-        spring: 29, compression: 4.5, relaxation: 4.9,
-        downforce: 0, yawAssist: .12,
+        name: 'Drift', description: 'Мощнее двигатель · контролируемый занос',
+        engine: 4400, reverse: 2050, brake: 22, handbrake: 17,
+        steer: .55, steerSpeed: 9.0, steerFade: .36, maxSpeed: 25,
+        frontSide: 1.32, rearSide: .84, slip: 4.0,
+        handbrakeRearSide: .25, handbrakeRearSlip: .65,
+        spring: 35, compression: 4.2, relaxation: 4.5,
+        downforce: 0, yawAssist: .08, uprightSpring: 5800, uprightDamping: 1500,
       },
     });
     let selectedPreset = 'derby';
@@ -361,7 +371,9 @@
     const carQuaternion = new THREE.Quaternion();
     const cameraDesired = new THREE.Vector3();
     const cameraTarget = new THREE.Vector3();
+    const upright = new THREE.Vector3();
     let steering = 0;
+    let smoothedBrake = 0;
     let reverseEngaged = false;
     let wheelContacts = 0;
 
@@ -373,6 +385,7 @@
       car.position.copy(position);
       car.quaternion.copy(carQuaternion);
       forward.set(0,0,1).applyQuaternion(carQuaternion);
+      const pitchSin = forward.y;
       forward.y = 0;
       if (forward.lengthSq() > .001) forward.normalize();
       for (let i=0; i < 4; i++) {
@@ -392,8 +405,9 @@
       gearEl.textContent=speedAlong>.35?'D':speedAlong<-.35?'R':reverseEngaged?'R':'N';
       wheelContacts=0;
       for(let i=0;i<4;i++) if(vehicle.wheelIsInContact(i)) wheelContacts++;
-      wheelStatus.textContent=`●${wheelContacts}/4 · Y${t.y.toFixed(2)} · Z→`;
-      wheelStatus.title='Колёса на земле · высота кузова · ось движения';
+      const incline = Math.asin(Math.min(1,Math.max(-1,pitchSin))) * 180 / Math.PI;
+      wheelStatus.textContent=`●${wheelContacts}/4 · Y${t.y.toFixed(2)} · P${incline.toFixed(0)}°`;
+      wheelStatus.title='Контакт колёс · высота кузова · наклон по тангажу';
     }
 
     function resetCar() {
@@ -412,6 +426,7 @@
         vehicle.setWheelSteering(i,0);
       }
       steering=0;
+      smoothedBrake=0;
       reverseEngaged=false;
       carBody.wakeUp();
       syncBodies();
@@ -428,6 +443,7 @@
       const rotation=carBody.rotation();
       carQuaternion.set(rotation.x,rotation.y,rotation.z,rotation.w);
       forward.set(0,0,1).applyQuaternion(carQuaternion);
+      const frontPitch = forward.y; // negative when nose dives
       forward.y=0;
       if (forward.lengthSq()>.0001) forward.normalize();
       const vel=carBody.linvel();
@@ -448,10 +464,18 @@
           engine=fwdSpeed< -7 ? 0 : -drive.reverse;
         }
       } else {
-        // Small wheel brake mimics engine braking without stopping abruptly.
-        footBrake=12;
+        // Gentle rolling resistance, NOT the near-emergency brake from v0.4.
+        footBrake=0.8;
       }
       if (hb) engine*=.60;
+      // Arcade brake assist: if the nose is already dipping steeply,
+      // temporarily release part of the foot brake to prevent an endo.
+      if (brake && fwdSpeed>2 && frontPitch < -0.10) {
+        const risk = Math.min(1,(-frontPitch-0.10)/0.16);
+        footBrake *= (1-0.65*risk);
+      }
+      // A short ramp avoids a one-frame impulse spike when the player brakes.
+      smoothedBrake += (footBrake-smoothedBrake)*(1-Math.exp(-12*dt));
       // Steering fades gradually with speed; no direct yaw impulse is used.
       const speedRatio=Math.min(1,horizontalSpeed/drive.maxSpeed);
       const steeringAngle=-steering*drive.steer*(1-drive.steerFade*speedRatio);
@@ -459,7 +483,11 @@
         vehicle.setWheelSteering(i,i<2?steeringAngle:0);
         // Rear-wheel drive. The front tires only steer and brake.
         vehicle.setWheelEngineForce(i,i>=2?engine:0);
-        vehicle.setWheelBrake(i,i>=2&&hb?drive.handbrake:footBrake);
+        // Rapier's brake value is IMPULSE PER WHEEL (per step), not newtons.
+        // The v0.4 values ~200 stopped the car almost instantly and flipped it.
+        // Bias the foot brake toward the front, but keep rear brake available.
+        const serviceBrake = smoothedBrake * (i < 2 ? 1.12 : 0.78);
+        vehicle.setWheelBrake(i, i>=2 && hb ? drive.handbrake : serviceBrake);
         vehicle.setWheelSideFrictionStiffness(i,i<2 ? drive.frontSide :
           hb ? drive.handbrakeRearSide : drive.rearSide);
         vehicle.setWheelFrictionSlip(i,i>=2&&hb?drive.handbrakeRearSlip:drive.slip);
@@ -471,6 +499,21 @@
       // Mild speed-related aerodynamic load; real collisions remain free.
       if(wheelContacts>0 && horizontalSpeed>3) {
         carBody.addForce({x:0,y:-drive.downforce*horizontalSpeed*horizontalSpeed,z:0},true);
+      }
+      // Gentle arcade chassis stabilization in PITCH and ROLL only.
+      // Unlike freezing rotations, this keeps impacts, suspension travel and
+      // natural body lean while helping the car settle after strong braking.
+      // The stabilizer acts only when wheels touch the ground, not in mid-air.
+      if (wheelContacts>=2) {
+        const currentQ = carBody.rotation();
+        carQuaternion.set(currentQ.x,currentQ.y,currentQ.z,currentQ.w);
+        upright.set(0,1,0).applyQuaternion(carQuaternion);
+        const angular = carBody.angvel();
+        carBody.addTorque({
+          x: drive.uprightSpring * (-upright.z) - drive.uprightDamping * angular.x,
+          y: 0,
+          z: drive.uprightSpring * upright.x - drive.uprightDamping * angular.z,
+        }, true);
       }
       // Small yaw damping assist in the easy modes, not a scripted turn.
       if(wheelContacts>0 && !hb && Math.abs(steering)<.30 && drive.yawAssist>0) {
@@ -521,7 +564,7 @@
     frame();
   } catch (error) {
     console.error('Wreck Circuit startup failed:', error);
-    showError('Не удалось запустить 3D-сцену v0.4: ' + (error?.message || String(error)));
+    showError('Не удалось запустить 3D-сцену v0.4.2: ' + (error?.message || String(error)));
   }
 </script>
 </body>
