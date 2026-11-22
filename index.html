@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#87929e">
+  <meta name="description" content="Wreck Circuit v0.1 — браузерный прототип автомобильного дерби">
+  <title>Wreck Circuit — Driving Prototype v0.1</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; background: #87929e; }
+    body { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+    #app { position: fixed; inset: 0; overflow: hidden; }
+    #game { display: block; width: 100%; height: 100%; touch-action: none; }
+    .hud { position: absolute; z-index: 2; inset: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; padding: max(12px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 0 max(14px, env(safe-area-inset-left)); pointer-events: none; }
+    .speed-card { display: flex; gap: 7px; align-items: baseline; padding: 8px 13px 9px; background: rgba(18,27,36,.8); color: white; border: 1px solid rgba(255,255,255,.15); border-radius: 11px; box-shadow: 0 3px 10px #0002; font-variant-numeric: tabular-nums; }
+    .speed-number { font-size: clamp(22px, 3.2vw, 31px); font-weight: 800; line-height: 1; min-width: 36px; text-align: right; }
+    .speed-unit { font-size: 10px; color: #dae1e8; font-weight: 650; }
+    .gear { font-size: 11px; color: #f9c45e; font-weight: 800; border-left: 1px solid #677380; padding-left: 8px; }
+    .restart { pointer-events: auto; border: 1px solid rgba(255,255,255,.15); border-radius: 11px; color: white; background: rgba(18,27,36,.8); padding: 12px 14px; font: 700 13px system-ui,sans-serif; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .restart:active { background: #344454; }
+    .help { z-index: 2; position: absolute; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); background: rgba(18,27,36,.6); color: #fff; border-radius: 9px; padding: 9px 14px; white-space: nowrap; font-size: 12px; pointer-events: none; }
+    .touch-controls { position: absolute; z-index: 3; bottom: max(15px, env(safe-area-inset-bottom)); left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; pointer-events: none; }
+    .group { display: flex; align-items: flex-end; gap: clamp(6px, 1.5vw, 13px); pointer-events: none; }
+    .ctrl { --h: clamp(58px, 12vh, 82px); pointer-events: auto; display: flex; justify-content: center; align-items: center; width: clamp(58px, 12vw, 82px); height: var(--h); border-radius: 15px; color: #fff; border: 2px solid rgba(255,255,255,.32); background: rgba(25,34,46,.72); box-shadow: 0 4px 10px #0003; font: 800 19px system-ui,sans-serif; touch-action: none; -webkit-tap-highlight-color: transparent; cursor: pointer; padding: 0; }
+    .ctrl.gas { height: calc(var(--h) + 15px); background: rgba(55,100,61,.78); font-size: 13px; }
+    .ctrl.brake { font-size: 11px; background: rgba(128,72,54,.82); }
+    .ctrl.handbrake { font-size: 15px; }
+    .ctrl.pressed, .ctrl:active { background: rgba(240,176,59,.93); color: #19212b; transform: translateY(2px); border-color: #fff7; }
+    .message { position: absolute; z-index: 6; left: 50%; top: 50%; transform: translate(-50%,-50%); width: min(90vw, 520px); padding: 22px; background: #18232eea; color: #fff; text-align: center; border-radius: 14px; line-height: 1.6; box-shadow: 0 10px 35px #0005; }
+    .message[hidden] { display: none; }
+    .portrait-note { display: none; }
+    @media (hover: hover) and (pointer: fine) {
+      .touch-controls { display: none; }
+    }
+    @media (max-width: 700px) { .help { display: none; } .speed-card { padding: 7px 10px; } .restart { padding: 11px 12px; } }
+    @media (orientation: portrait) and (pointer: coarse) {
+      .portrait-note { position: absolute; inset: 0; z-index: 5; display: flex; justify-content: center; align-items: center; flex-direction: column; gap: 12px; background: #1d2935; color: white; font-weight: 700; text-align: center; padding: 30px; }
+      .portrait-note .rotate-symbol { font-size: 55px; line-height: 1; }
+    }
+    @media (max-height: 420px) {
+      .ctrl { --h: clamp(48px, 13vh, 62px); width: clamp(49px, 10vw, 67px); border-radius: 12px; }
+      .touch-controls { bottom: max(6px, env(safe-area-inset-bottom)); }
+      .restart { padding: 9px 12px; }
+    }
+  </style>
+</head>
+<body>
+<main id="app">
+  <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
+  <div class="hud">
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span></div>
+    <button id="restart" class="restart" type="button">↻ Перезапуск</button>
+  </div>
+  <div class="help">W / ↑ газ · S / ↓ тормоз и задний ход · A D / ← → поворот · Space ручник · R перезапуск</div>
+  <div class="touch-controls" aria-label="Кнопки управления на телефоне">
+    <div class="group">
+      <button class="ctrl" data-control="left" type="button" aria-label="Влево">◀</button>
+      <button class="ctrl" data-control="right" type="button" aria-label="Вправо">▶</button>
+    </div>
+    <div class="group">
+      <button class="ctrl handbrake" data-control="handbrake" type="button" aria-label="Ручной тормоз">HB</button>
+      <button class="ctrl brake" data-control="brake" type="button" aria-label="Тормоз">ТОРМОЗ</button>
+      <button class="ctrl gas" data-control="gas" type="button" aria-label="Газ">ГАЗ</button>
+    </div>
+  </div>
+  <div class="portrait-note"><span class="rotate-symbol">↻</span>Поверните телефон горизонтально,<br>чтобы начать заезд</div>
+  <div id="message" class="message" hidden></div>
+</main>
+<script type="module">
+  // Single-file prototype: Three.js is fetched from the CDN. No bundler is needed.
+  const showError = (message) => {
+    const box = document.getElementById('message');
+    box.textContent = message;
+    box.hidden = false;
+  };
+
+  try {
+    const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js');
+    const canvas = document.getElementById('game');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+    renderer.setClearColor(0xb6c3cd);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xb6c3cd);
+    const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 230);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x607080, 2.1));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+    sun.position.set(-18, 35, -22);
+    scene.add(sun);
+
+    const material = (color) => new THREE.MeshLambertMaterial({ color });
+    const floorMat = material(0x9aa0a5);
+    const wallMat = material(0x65707a);
+    const curbMat = material(0x77838c);
+    const yellowMat = material(0xe1a53e);
+    const glassMat = material(0x415967);
+    const rubberMat = material(0x25282d);
+    const lampMat = material(0xf6e1a6);
+    const redMat = material(0x9c3938);
+
+    function block(parent, w, h, d, mat, x, y, z) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      mesh.position.set(x, y, z);
+      parent.add(mesh);
+      return mesh;
+    }
+
+    // The entire arena is generated from boxes, without textures or model files.
+    block(scene, 80, 0.5, 80, floorMat, 0, -0.25, 0);
+    block(scene, 80.8, 1.8, 0.8, wallMat, 0, 0.9, -40.4);
+    block(scene, 80.8, 1.8, 0.8, wallMat, 0, 0.9, 40.4);
+    block(scene, 0.8, 1.8, 80.8, wallMat, -40.4, 0.9, 0);
+    block(scene, 0.8, 1.8, 80.8, wallMat, 40.4, 0.9, 0);
+    const grid = new THREE.GridHelper(80, 20, 0x8c969e, 0x8c969e);
+    grid.position.y = 0.005;
+    scene.add(grid);
+    // Four corner blocks help the player recognize movement and scale.
+    for (const x of [-36, 36]) for (const z of [-36, 36]) {
+      block(scene, 2, 0.15, 2, curbMat, x, 0.075, z);
+    }
+
+    const car = new THREE.Group();
+    scene.add(car);
+    // Positive local Z points toward the car's nose.
+    block(car, 2, 0.65, 4.4, yellowMat, 0, 0.82, 0);
+    block(car, 1.72, 0.78, 2.1, glassMat, 0, 1.5, -0.4);
+    block(car, 1.8, 0.2, 1.05, yellowMat, 0, 1.18, 1.62);
+    for (const x of [-1.0, 1.0]) for (const z of [-1.35, 1.35]) {
+      block(car, 0.35, 0.74, 0.64, rubberMat, x, 0.49, z);
+    }
+    for (const x of [-0.7, 0.7]) {
+      block(car, 0.42, 0.16, 0.07, lampMat, x, 0.93, 2.23);
+      block(car, 0.42, 0.16, 0.07, redMat, x, 0.93, -2.23);
+    }
+    block(car, 1.9, 0.14, 0.12, rubberMat, 0, 0.6, 2.23);
+    block(car, 1.9, 0.14, 0.12, rubberMat, 0, 0.6, -2.23);
+    // Flat dark patch is a lightweight substitute for dynamic shadow maps.
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(3.1, 5.2), new THREE.MeshBasicMaterial({ color: 0x27303b, transparent: true, opacity: 0.13, depthWrite: false }));
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.016;
+    scene.add(shadow);
+
+    const speedEl = document.getElementById('speed');
+    const gearEl = document.getElementById('gear');
+    const keyActions = new Set();
+    const pointerActions = new Map();
+    const keyToControl = {
+      KeyW: 'gas', ArrowUp: 'gas', KeyS: 'brake', ArrowDown: 'brake',
+      KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
+      Space: 'handbrake',
+    };
+    const held = (action) => keyActions.has(action) || [...pointerActions.values()].includes(action);
+    function clearInput() {
+      keyActions.clear(); pointerActions.clear();
+      document.querySelectorAll('[data-control]').forEach(button => button.classList.remove('pressed'));
+    }
+    window.addEventListener('keydown', event => {
+      if (event.code === 'KeyR') { event.preventDefault(); if (!event.repeat) resetCar(); return; }
+      const action = keyToControl[event.code];
+      if (action) { event.preventDefault(); keyActions.add(action); }
+    });
+    window.addEventListener('keyup', event => {
+      const action = keyToControl[event.code];
+      if (action) { event.preventDefault(); keyActions.delete(action); }
+    });
+    window.addEventListener('blur', clearInput);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
+    document.querySelectorAll('[data-control]').forEach(button => {
+      const action = button.dataset.control;
+      const endPointer = (event) => {
+        if (pointerActions.get(event.pointerId) !== action) return;
+        pointerActions.delete(event.pointerId);
+        button.classList.remove('pressed');
+      };
+      button.addEventListener('pointerdown', event => {
+        event.preventDefault();
+        button.setPointerCapture(event.pointerId);
+        pointerActions.set(event.pointerId, action);
+        button.classList.add('pressed');
+      });
+      button.addEventListener('pointerup', endPointer);
+      button.addEventListener('pointercancel', endPointer);
+      button.addEventListener('lostpointercapture', endPointer);
+      button.addEventListener('contextmenu', event => event.preventDefault());
+    });
+    document.getElementById('restart').addEventListener('click', () => { clearInput(); resetCar(); });
+
+    const position = new THREE.Vector3();
+    const velocity = new THREE.Vector3();
+    const forward = new THREE.Vector3();
+    const cameraDesired = new THREE.Vector3();
+    const cameraTarget = new THREE.Vector3();
+    let heading = 0;
+    function resetCar() {
+      position.set(0, 0, 0);
+      velocity.set(0, 0, 0);
+      heading = 0;
+      car.position.copy(position);
+      car.rotation.y = heading;
+      camera.position.set(0, 9.0, -13.0);
+      camera.lookAt(0, 1.1, 2);
+      speedEl.textContent = '0';
+      gearEl.textContent = 'N';
+    }
+    resetCar();
+
+    function simulate(dt) {
+      const gas = held('gas');
+      const brake = held('brake');
+      const handbrake = held('handbrake');
+      const steer = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
+      forward.set(Math.sin(heading), 0, Math.cos(heading));
+      let forwardSpeed = velocity.dot(forward);
+      const turnStrength = Math.min(1, Math.abs(forwardSpeed) / 6.0);
+      heading += steer * Math.sign(forwardSpeed) * (handbrake ? 1.65 : 1.3) * turnStrength * dt;
+      forward.set(Math.sin(heading), 0, Math.cos(heading));
+      forwardSpeed = velocity.dot(forward);
+      let sideX = velocity.x - forward.x * forwardSpeed;
+      let sideZ = velocity.z - forward.z * forwardSpeed;
+
+      if (gas && !brake) {
+        forwardSpeed += (forwardSpeed < 0 ? 11 : 4.7) * dt;
+      } else if (brake && !gas) {
+        forwardSpeed -= (forwardSpeed > 0.3 ? 10 : 3.3) * dt;
+      } else if (gas && brake) {
+        forwardSpeed *= Math.exp(-7 * dt);
+      } else {
+        forwardSpeed *= Math.exp(-0.85 * dt);
+      }
+      if (handbrake) forwardSpeed *= Math.exp(-1.7 * dt);
+      forwardSpeed = THREE.MathUtils.clamp(forwardSpeed, -7, 19.5);
+      const grip = handbrake ? 0.95 : 7.5;
+      const sideDecay = Math.exp(-grip * dt);
+      sideX *= sideDecay;
+      sideZ *= sideDecay;
+      velocity.set(forward.x * forwardSpeed + sideX, 0, forward.z * forwardSpeed + sideZ);
+      if (velocity.lengthSq() < 0.0004 && !gas && !brake) velocity.set(0, 0, 0);
+      position.addScaledVector(velocity, dt);
+
+      // Simple wall collision, not yet a rigid-body physics engine.
+      const limit = 38.1;
+      if (position.x > limit) { position.x = limit; velocity.x = Math.min(0, velocity.x); }
+      if (position.x < -limit) { position.x = -limit; velocity.x = Math.max(0, velocity.x); }
+      if (position.z > limit) { position.z = limit; velocity.z = Math.min(0, velocity.z); }
+      if (position.z < -limit) { position.z = -limit; velocity.z = Math.max(0, velocity.z); }
+      car.position.copy(position);
+      car.rotation.y = heading;
+      shadow.position.x = position.x;
+      shadow.position.z = position.z;
+      shadow.rotation.z = 0;
+      shadow.rotation.set(-Math.PI / 2, 0, -heading);
+      speedEl.textContent = String(Math.round(velocity.length() * 3.6));
+      gearEl.textContent = forwardSpeed > 0.25 ? 'D' : forwardSpeed < -0.25 ? 'R' : 'N';
+    }
+
+    const clock = new THREE.Clock();
+    let accumulator = 0;
+    function resize() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      if (!width || !height) return;
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+    function frame() {
+      requestAnimationFrame(frame);
+      const delta = Math.min(clock.getDelta(), 0.05);
+      accumulator += delta;
+      const fixedDt = 1 / 60;
+      let updates = 0;
+      while (accumulator >= fixedDt && updates < 4) {
+        simulate(fixedDt);
+        accumulator -= fixedDt;
+        updates++;
+      }
+      if (updates === 4) accumulator = 0;
+      const sin = Math.sin(heading), cos = Math.cos(heading);
+      cameraDesired.set(position.x - sin * 12.2, 8.2, position.z - cos * 12.2);
+      camera.position.lerp(cameraDesired, 1 - Math.exp(-4.8 * delta));
+      cameraTarget.set(position.x + sin * 3.5, 1.4, position.z + cos * 3.5);
+      camera.lookAt(cameraTarget);
+      renderer.render(scene, camera);
+    }
+    frame();
+  } catch (error) {
+    console.error('Wreck Circuit startup failed:', error);
+    showError('Не удалось запустить 3D-сцену. Проверьте подключение к интернету и поддержку WebGL в браузере. Подробности — в консоли.');
+  }
+</script>
+</body>
+</html>
