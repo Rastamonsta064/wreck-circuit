@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v0.2 — браузерный прототип автомобильного дерби">
-  <title>Wreck Circuit — Driving Prototype v0.2</title>
+  <meta name="description" content="Wreck Circuit v0.3 — браузерный прототип автомобильного дерби">
+  <title>Wreck Circuit — Driving Prototype v0.3</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -51,10 +51,10 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.2</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.3</span></div>
     <button id="restart" class="restart" type="button">↻ Перезапуск</button>
   </div>
-  <div class="help">W / ↑ газ · S / ↓ тормоз и задний ход · A D / ← → поворот · Space ручник · R перезапуск</div>
+  <div class="help">W / ↑ газ · S / ↓ тормоз и задний ход · A D / ← → поворот · Space ручник · R перезапуск · Толкай синий блок!</div>
   <div class="touch-controls" aria-label="Кнопки управления на телефоне">
     <div class="group">
       <button class="ctrl" data-control="left" type="button" aria-label="Влево">◀</button>
@@ -67,7 +67,7 @@
     </div>
   </div>
   <div class="portrait-note"><span class="rotate-symbol">↻</span>Поверните телефон горизонтально,<br>чтобы начать заезд</div>
-  <div id="message" class="message" hidden></div>
+  <div id="message" class="message">Загрузка физического движка…</div>
 </main>
 <script type="module">
   // Single-file prototype: Three.js is fetched from the CDN. No bundler is needed.
@@ -78,7 +78,15 @@
   };
 
   try {
-    const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js');
+    const [THREE, rapierModule] = await Promise.all([
+      import('https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js'),
+      import('https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.19.3/+esm'),
+    ]);
+    // rapier3d-compat contains WebAssembly in its JS file. It works with
+    // plain HTML and GitHub Pages, without npm, a bundler, or a WASM server.
+    const RAPIER = rapierModule.default?.World ? rapierModule.default : rapierModule;
+    await RAPIER.init();
+    document.getElementById('message').hidden = true;
     const canvas = document.getElementById('game');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
@@ -110,7 +118,7 @@
       return mesh;
     }
 
-    // The entire arena is generated from boxes, without textures or model files.
+    // The meshes are purely visual. Rapier owns all collision geometry.
     block(scene, 80, 0.5, 80, floorMat, 0, -0.25, 0);
     block(scene, 80.8, 1.8, 0.8, wallMat, 0, 0.9, -40.4);
     block(scene, 80.8, 1.8, 0.8, wallMat, 0, 0.9, 40.4);
@@ -119,14 +127,13 @@
     const grid = new THREE.GridHelper(80, 20, 0x8c969e, 0x8c969e);
     grid.position.y = 0.005;
     scene.add(grid);
-    // Four corner blocks help the player recognize movement and scale.
     for (const x of [-36, 36]) for (const z of [-36, 36]) {
       block(scene, 2, 0.15, 2, curbMat, x, 0.075, z);
     }
 
     const car = new THREE.Group();
     scene.add(car);
-    // Positive local Z points toward the car's nose.
+    // Positive local Z points toward the car's nose; just like v0.2.
     block(car, 2, 0.65, 4.4, yellowMat, 0, 0.82, 0);
     block(car, 1.72, 0.78, 2.1, glassMat, 0, 1.5, -0.4);
     block(car, 1.8, 0.2, 1.05, yellowMat, 0, 1.18, 1.62);
@@ -139,8 +146,51 @@
     }
     block(car, 1.9, 0.14, 0.12, rubberMat, 0, 0.6, 2.23);
     block(car, 1.9, 0.14, 0.12, rubberMat, 0, 0.6, -2.23);
-    // v0.2: removed the old flat rectangle "shadow" — it visually crossed the car.
-    // Proper contact shadows will return with the graphics pass.
+
+    // v0.3: true 3D rigid-body collision resolution, simplified to a flat
+    // driving plane. Locking Y translation and X/Z rotation is deliberate:
+    // a suspension model and rollovers belong to a later milestone.
+    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+    world.timestep = 1 / 60;
+    const wallCollider = (hx, hy, hz, x, y, z) => {
+      world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz)
+        .setTranslation(x, y, z).setRestitution(0.12).setFriction(0.65));
+    };
+    wallCollider(40.4, 0.9, 0.4, 0, 0.9, -40.4);
+    wallCollider(40.4, 0.9, 0.4, 0, 0.9, 40.4);
+    wallCollider(0.4, 0.9, 40.4, -40.4, 0.9, 0);
+    wallCollider(0.4, 0.9, 40.4, 40.4, 0.9, 0);
+
+    // The car has a real dynamic mass, collides with other bodies, and can
+    // receive impulses. One cheap box collider approximates its silhouette.
+    const carBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(0, 0.9, 0)
+      .enabledTranslations(true, false, true)
+      .enabledRotations(false, true, false)
+      .setLinearDamping(0.12)
+      .setAngularDamping(0.45)
+      .setCcdEnabled(true));
+    world.createCollider(RAPIER.ColliderDesc.cuboid(1.06, 0.5, 2.18)
+      .setDensity(100).setRestitution(0.10).setFriction(0.72), carBody);
+    const carMass = carBody.mass();
+    const yawInertiaEstimate = carMass * (2.12 ** 2 + 4.36 ** 2) / 12;
+
+    // Two deliberately simple test objects: the blue box moves when hit;
+    // the red one is fixed. Nothing here is AI, a race, or a damage system.
+    const boxMat = material(0x427eaa);
+    const fixedMat = material(0xb45445);
+    const movingMesh = block(scene, 2.4, 1.3, 2.4, boxMat, -5, 0.65, 16);
+    block(scene, 3.4, 1.8, 3.4, fixedMat, 10, 0.9, 18);
+    const movingBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(-5, 0.65, 16)
+      .enabledTranslations(true, false, true)
+      .enabledRotations(false, true, false)
+      .setLinearDamping(1.25)
+      .setAngularDamping(1.8)
+      .setCcdEnabled(true));
+    world.createCollider(RAPIER.ColliderDesc.cuboid(1.2, 0.65, 1.2)
+      .setDensity(20).setFriction(0.6).setRestitution(0.18), movingBody);
+    wallCollider(1.7, 0.9, 1.7, 10, 0.9, 18);
 
     const speedEl = document.getElementById('speed');
     const gearEl = document.getElementById('gear');
@@ -190,42 +240,65 @@
     const position = new THREE.Vector3();
     const velocity = new THREE.Vector3();
     const forward = new THREE.Vector3();
+    const carQuaternion = new THREE.Quaternion();
     const cameraDesired = new THREE.Vector3();
     const cameraTarget = new THREE.Vector3();
-    let heading = 0;
     let steering = 0;
 
-    // Arcade tuning. Units: meters, seconds, radians (not a rigid-body simulator).
+    // Driving dynamics use impulses, not position teleportation. This keeps
+    // the impacts, glancing wall hits, and box pushing handled by Rapier.
     const drive = Object.freeze({
-      maxForwardSpeed: 19.5,    // 70 km/h
-      maxReverseSpeed: 7,       // 25 km/h
+      maxForwardSpeed: 19.5,       // approximately 70 km/h
+      maxReverseSpeed: 7,
       throttleAcceleration: 5.6,
       reverseAcceleration: 3.3,
       brakeDeceleration: 11.5,
       coastResistance: 0.65,
       handbrakeResistance: 1.25,
-      steeringResponse: 10.0,
+      steeringResponse: 10,
       turningRate: 1.4,
       handbrakeTurningRate: 1.85,
-      lateralGrip: 8.0,
+      lateralGrip: 8,
       handbrakeLateralGrip: 1.0,
+      yawResponse: 7,
     });
     const moveToward = (current, target, maxStep) => {
       if (current < target) return Math.min(current + maxStep, target);
       return Math.max(current - maxStep, target);
     };
 
-    function resetCar() {
-      position.set(0, 0, 0);
-      velocity.set(0, 0, 0);
-      heading = 0;
-      steering = 0;
+    function syncBodies() {
+      const t = carBody.translation();
+      const q = carBody.rotation();
+      position.set(t.x, t.y - 0.9, t.z);
+      carQuaternion.set(q.x, q.y, q.z, q.w);
       car.position.copy(position);
-      car.rotation.y = heading;
-      camera.position.set(0, 9.0, -13.0);
+      car.quaternion.copy(carQuaternion);
+      forward.set(0, 0, 1).applyQuaternion(carQuaternion);
+      const vel = carBody.linvel();
+      velocity.set(vel.x, 0, vel.z);
+      const movingTranslation = movingBody.translation();
+      const movingRotation = movingBody.rotation();
+      movingMesh.position.set(movingTranslation.x, movingTranslation.y, movingTranslation.z);
+      movingMesh.quaternion.set(movingRotation.x, movingRotation.y, movingRotation.z, movingRotation.w);
+      const longitudinalSpeed = velocity.dot(forward);
+      speedEl.textContent = String(Math.round(velocity.length() * 3.6));
+      gearEl.textContent = longitudinalSpeed > 0.25 ? 'D' : longitudinalSpeed < -0.25 ? 'R' : 'N';
+    }
+
+    function resetCar() {
+      carBody.setTranslation({ x: 0, y: 0.9, z: 0 }, true);
+      carBody.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+      carBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      carBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      movingBody.setTranslation({ x: -5, y: 0.65, z: 16 }, true);
+      movingBody.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+      movingBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      movingBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      steering = 0;
+      syncBodies();
+      camera.position.set(0, 9, -13);
       camera.lookAt(0, 1.1, 2);
-      speedEl.textContent = '0';
-      gearEl.textContent = 'N';
     }
     resetCar();
 
@@ -236,64 +309,54 @@
       const steerTarget = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
       steering += (steerTarget - steering) * (1 - Math.exp(-drive.steeringResponse * dt));
 
-      // Important: Three.js positive Y rotation points the car's +Z nose toward
-      // world +X, which appears LEFT to our rear-facing chase camera.
-      // Therefore turning right must DECREASE heading (and left increases it).
-      forward.set(Math.sin(heading), 0, Math.cos(heading));
-      let forwardSpeed = velocity.dot(forward);
-      const direction = Math.abs(forwardSpeed) > 0.25 ? Math.sign(forwardSpeed) : 0;
-      const lowSpeedAssist = Math.min(1, Math.abs(forwardSpeed) / 5.0);
-      const highSpeedDamping = 1 - 0.3 * Math.min(1, Math.abs(forwardSpeed) / drive.maxForwardSpeed);
-      const yawRate = handbrake ? drive.handbrakeTurningRate : drive.turningRate;
-      heading -= steering * direction * lowSpeedAssist * highSpeedDamping * yawRate * dt;
-
-      // Preserve sideways momentum when the car changes direction. Strong grip
-      // usually absorbs sliding; handbrake drastically reduces lateral grip.
-      forward.set(Math.sin(heading), 0, Math.cos(heading));
-      forwardSpeed = velocity.dot(forward);
-      let lateralX = velocity.x - forward.x * forwardSpeed;
-      let lateralZ = velocity.z - forward.z * forwardSpeed;
+      const q = carBody.rotation();
+      carQuaternion.set(q.x, q.y, q.z, q.w);
+      forward.set(0, 0, 1).applyQuaternion(carQuaternion);
+      const v = carBody.linvel();
+      const forwardSpeed = v.x * forward.x + v.z * forward.z;
+      const lateralX = v.x - forward.x * forwardSpeed;
+      const lateralZ = v.z - forward.z * forwardSpeed;
+      let targetSpeed = forwardSpeed;
 
       if (gas && brake) {
-        forwardSpeed = moveToward(forwardSpeed, 0, drive.brakeDeceleration * dt);
+        targetSpeed = moveToward(forwardSpeed, 0, drive.brakeDeceleration * dt);
       } else if (gas) {
-        const acceleration = forwardSpeed < -0.2 ? drive.brakeDeceleration : drive.throttleAcceleration;
-        forwardSpeed += acceleration * dt;
+        targetSpeed += (forwardSpeed < -0.2 ? drive.brakeDeceleration : drive.throttleAcceleration) * dt;
       } else if (brake) {
-        const deceleration = forwardSpeed > 0.2 ? drive.brakeDeceleration : drive.reverseAcceleration;
-        forwardSpeed -= deceleration * dt;
+        targetSpeed -= (forwardSpeed > 0.2 ? drive.brakeDeceleration : drive.reverseAcceleration) * dt;
       } else {
-        forwardSpeed *= Math.exp(-drive.coastResistance * dt);
+        targetSpeed *= Math.exp(-drive.coastResistance * dt);
       }
-      if (handbrake) forwardSpeed *= Math.exp(-drive.handbrakeResistance * dt);
-      forwardSpeed = THREE.MathUtils.clamp(forwardSpeed, -drive.maxReverseSpeed, drive.maxForwardSpeed);
+      if (handbrake) targetSpeed *= Math.exp(-drive.handbrakeResistance * dt);
+      targetSpeed = THREE.MathUtils.clamp(targetSpeed, -drive.maxReverseSpeed, drive.maxForwardSpeed);
       const grip = handbrake ? drive.handbrakeLateralGrip : drive.lateralGrip;
-      const sideDecay = Math.exp(-grip * dt);
-      lateralX *= sideDecay;
-      lateralZ *= sideDecay;
-      velocity.set(forward.x * forwardSpeed + lateralX, 0, forward.z * forwardSpeed + lateralZ);
-      if (velocity.lengthSq() < 0.0004 && !gas && !brake) velocity.set(0, 0, 0);
-      position.addScaledVector(velocity, dt);
+      const lateralFraction = Math.exp(-grip * dt) - 1;
+      const forwardDelta = targetSpeed - forwardSpeed;
+      carBody.applyImpulse({
+        x: carMass * (forward.x * forwardDelta + lateralX * lateralFraction),
+        y: 0,
+        z: carMass * (forward.z * forwardDelta + lateralZ * lateralFraction),
+      }, true);
 
-      // Prevent the complete rectangular body (not just its centre) from
-      // entering arena walls. The body is 2.4 m wide and 4.64 m long.
-      const cs = Math.abs(Math.cos(heading));
-      const sn = Math.abs(Math.sin(heading));
-      const halfWidth = 1.2 * cs + 2.32 * sn;
-      const halfLength = 1.2 * sn + 2.32 * cs;
-      const xLimit = 39.98 - halfWidth;
-      const zLimit = 39.98 - halfLength;
-      if (position.x > xLimit) { position.x = xLimit; velocity.x = Math.min(0, velocity.x); }
-      if (position.x < -xLimit) { position.x = -xLimit; velocity.x = Math.max(0, velocity.x); }
-      if (position.z > zLimit) { position.z = zLimit; velocity.z = Math.min(0, velocity.z); }
-      if (position.z < -zLimit) { position.z = -zLimit; velocity.z = Math.max(0, velocity.z); }
+      // Right turn: negative yaw when moving forward (keeps v0.2 controls).
+      // Torque impulse steers the physical body without overwriting impacts.
+      const direction = Math.abs(forwardSpeed) > 0.25 ? Math.sign(forwardSpeed) : 0;
+      const lowSpeedAssist = Math.min(1, Math.abs(forwardSpeed) / 5);
+      const highSpeedDamping = 1 - 0.3 * Math.min(1, Math.abs(forwardSpeed) / drive.maxForwardSpeed);
+      const turnRate = handbrake ? drive.handbrakeTurningRate : drive.turningRate;
+      const desiredYawRate = -steering * direction * lowSpeedAssist * highSpeedDamping * turnRate;
+      const currentYawRate = carBody.angvel().y;
+      carBody.applyTorqueImpulse({
+        x: 0,
+        y: yawInertiaEstimate * (desiredYawRate - currentYawRate) * (1 - Math.exp(-drive.yawResponse * dt)),
+        z: 0,
+      }, true);
 
-      car.position.copy(position);
-      car.rotation.y = heading;
-      speedEl.textContent = String(Math.round(velocity.length() * 3.6));
-      gearEl.textContent = forwardSpeed > 0.25 ? 'D' : forwardSpeed < -0.25 ? 'R' : 'N';
+      world.step();
+      syncBodies();
     }
 
+    // Camera follows the actual rigid-body pose after each physics step.
     const clock = new THREE.Clock();
     let accumulator = 0;
     function resize() {
@@ -318,17 +381,16 @@
         updates++;
       }
       if (updates === 4) accumulator = 0;
-      const sin = Math.sin(heading), cos = Math.cos(heading);
-      cameraDesired.set(position.x - sin * 12.2, 8.2, position.z - cos * 12.2);
+      cameraDesired.set(position.x - forward.x * 12.2, 8.2, position.z - forward.z * 12.2);
       camera.position.lerp(cameraDesired, 1 - Math.exp(-4.8 * delta));
-      cameraTarget.set(position.x + sin * 3.5, 1.4, position.z + cos * 3.5);
+      cameraTarget.set(position.x + forward.x * 3.5, 1.4, position.z + forward.z * 3.5);
       camera.lookAt(cameraTarget);
       renderer.render(scene, camera);
     }
     frame();
   } catch (error) {
     console.error('Wreck Circuit startup failed:', error);
-    showError('Не удалось запустить 3D-сцену. Проверьте подключение к интернету и поддержку WebGL в браузере. Подробности — в консоли.');
+    showError('Не удалось запустить 3D-сцену или Rapier. Проверьте интернет и WebGL. Ошибка: ' + (error?.message || String(error)));
   }
 </script>
 </body>
