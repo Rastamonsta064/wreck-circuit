@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v0.5 — кузов, следы шин и звуки">
-  <title>Wreck Circuit — Visual & Audio Effects v0.5</title>
+  <meta name="description" content="Wreck Circuit v0.6 — процедурный седан с модульными панелями">
+  <title>Wreck Circuit — Procedural Sedan v0.6</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -24,6 +24,7 @@
     .hud-actions { display: flex; align-items: flex-start; gap: 7px; pointer-events: auto; }
     .audio-toggle { white-space: nowrap; }
     .audio-toggle[aria-pressed="false"] { color: #bbc5ce; background: rgba(18,27,36,.6); }
+    #inspect-toggle[aria-pressed="true"] { background: #f6c363; color: #232933; }
     .help { z-index: 2; position: absolute; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); background: rgba(18,27,36,.6); color: #fff; border-radius: 9px; padding: 9px 14px; white-space: nowrap; font-size: 12px; pointer-events: none; }
     .touch-controls { position: absolute; z-index: 3; bottom: max(15px, env(safe-area-inset-bottom)); left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; pointer-events: none; }
     .group { display: flex; align-items: flex-end; gap: clamp(6px, 1.5vw, 13px); pointer-events: none; }
@@ -60,6 +61,7 @@
       .restart { padding: 9px 10px; }
       .hud-actions { gap: 4px; }
       .audio-toggle { font-size: 12px; }
+      #inspect-toggle { font-size: 11px; padding: 9px 7px; }
     }
   </style>
 </head>
@@ -67,8 +69,9 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.5</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.6</span></div>
     <div class="hud-actions">
+      <button id="inspect-toggle" class="restart" type="button" aria-pressed="false" aria-label="Переключить камеру осмотра">👁 Осмотр</button>
       <button id="audio-toggle" class="restart audio-toggle" type="button" aria-pressed="true" aria-label="Выключить звук">🔊 Звук</button>
       <button id="restart" class="restart" type="button">↻ Перезапуск</button>
     </div>
@@ -82,7 +85,7 @@
     </div>
     <div id="mode-description" class="mode-description">Тяжёлый автомобиль · сбалансированное сцепление</div>
   </div>
-  <div class="help">W/↑ газ · S/↓ тормоз/реверс · A D/← → руль · Space ручник · R рестарт · 1/2/3 режим</div>
+  <div class="help">W/↑ газ · S/↓ тормоз/реверс · A D/← → руль · Space ручник · R рестарт · C осмотр · 1/2/3 режим</div>
   <div class="touch-controls" aria-label="Кнопки управления на телефоне">
     <div class="group">
       <button class="ctrl" data-control="left" type="button" aria-label="Влево">◀</button>
@@ -168,15 +171,251 @@
     // Render-only pivot. Roll/pitch never enter Rapier and never move wheel rays.
     const visualBody = new THREE.Group();
     car.add(visualBody);
-    block(visualBody, 2.0, 0.65, 4.18, yellowMat, 0, 0.05, 0);
-    block(visualBody, 1.72, 0.72, 2.05, glassMat, 0, 0.73, -0.31);
-    block(visualBody, 1.8, 0.16, 1.05, yellowMat, 0, 0.46, 1.52);
-    for (const x of [-0.70, 0.70]) {
-      block(visualBody, .4, .14, .08, lampMat, x, 0.17, 2.1);
-      block(visualBody, .4, .14, .08, redMat, x, 0.17, -2.1);
+
+    // v0.6 — modular 1980s stock-car sedan, entirely generated in code.
+    // Important: this is a VISUAL replacement ONLY. The Rapier chassis,
+    // center of mass, wheel anchors, vehicle tuning and input are unchanged.
+    // Local +Z is FRONT. Every major body panel is a separate named Mesh.
+    // Its rest vertex positions are stored for the upcoming damage system.
+    const bodyParts = new Map();
+    const paint = new THREE.MeshStandardMaterial({color:0xdba13d, metalness:.13, roughness:.60, side:THREE.DoubleSide});
+    const paintLight = new THREE.MeshStandardMaterial({color:0xf0be62, metalness:.15, roughness:.54, side:THREE.DoubleSide});
+    const paintShade = new THREE.MeshStandardMaterial({color:0xa97529, metalness:.08, roughness:.75, side:THREE.DoubleSide});
+    const windowGlass = new THREE.MeshStandardMaterial({color:0x354b5a, metalness:.10, roughness:.26, side:THREE.DoubleSide});
+    const windowTrim = material(0x242b2f);
+    const chrome = new THREE.MeshStandardMaterial({color:0xb3b9b4, metalness:.62, roughness:.32});
+    const frontMetal = material(0x414348);
+    const sillMaterial = material(0x504b41);
+    const cream = new THREE.MeshBasicMaterial({color:0xffebae});
+    const rearLens = new THREE.MeshBasicMaterial({color:0xb7372b});
+
+    function tagPart(mesh, name, detachable=false) {
+      mesh.name = `sedan_${name}`;
+      mesh.userData.damagePart = name;
+      mesh.userData.detachable = detachable;
+      const positionAttribute = mesh.geometry?.getAttribute('position');
+      if (positionAttribute) mesh.userData.restPositions = new Float32Array(positionAttribute.array);
+      bodyParts.set(name, mesh);
+      return mesh;
     }
-    block(visualBody, 1.9, .16, .13, rubberMat, 0, -0.20, 2.14);
-    block(visualBody, 1.9, .16, .13, rubberMat, 0, -0.20, -2.14);
+    function solidPart(parent,name,w,h,d,mat,x,y,z,detachable=false) {
+      const mesh = block(parent,w,h,d,mat,x,y,z);
+      tagPart(mesh,name,detachable);
+      return mesh;
+    }
+    // Low-poly surface grid: shared vertices permit future local dents.
+    // Parameter order: u along width/Z, v along length/Y depending on panel.
+    function surfacePart(parent,name,uSteps,vSteps,sample,mat,detachable=false) {
+      const coordinates=[];
+      const indices=[];
+      for(let v=0;v<=vSteps;v++) for(let u=0;u<=uSteps;u++) {
+        const p=sample(u/uSteps,v/vSteps);
+        coordinates.push(p[0],p[1],p[2]);
+      }
+      for(let v=0;v<vSteps;v++) for(let u=0;u<uSteps;u++) {
+        const a=v*(uSteps+1)+u, b=a+1, c=a+uSteps+1, d=c+1;
+        indices.push(a,c,b,b,c,d);
+      }
+      const g=new THREE.BufferGeometry();
+      g.setAttribute('position',new THREE.Float32BufferAttribute(coordinates,3));
+      g.setIndex(indices);
+      g.computeVertexNormals();
+      const mesh=new THREE.Mesh(g,mat);
+      parent.add(mesh);
+      return tagPart(mesh,name,detachable);
+    }
+    function polygonPart(parent,name,points,mat) {
+      const g=new THREE.BufferGeometry();
+      const vertices=[];
+      for(const p of points) vertices.push(...p);
+      const idx=[];
+      for(let i=1;i<points.length-1;i++) idx.push(0,i,i+1);
+      g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      const mesh=new THREE.Mesh(g,mat);
+      parent.add(mesh);
+      return tagPart(mesh,name);
+    }
+    // Beams are cylinders; used for window pillars, trim and wheel-arch lips.
+    function edge(parent,p1,p2,radius,mat) {
+      const a=new THREE.Vector3(...p1),b=new THREE.Vector3(...p2);
+      const dir=b.clone().sub(a),len=dir.length();
+      const mesh=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,len,6),mat);
+      mesh.position.copy(a).add(b).multiplyScalar(.5);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.normalize());
+      parent.add(mesh);
+      return mesh;
+    }
+    // Dark underbody is narrower than the side panels, exposing the wheel openings.
+    solidPart(visualBody,'underframe',1.46,.23,4.05,sillMaterial,0,-.20,0);
+    solidPart(visualBody,'rocker_left',.12,.18,1.33,paintShade,-.84,-.13,-.05);
+    solidPart(visualBody,'rocker_right',.12,.18,1.33,paintShade,.84,-.13,-.05);
+
+    const bodySections=[
+      ['rear_fender',-2.14,-.76],
+      ['rear_door',-.76,-.12],
+      ['front_door',-.12,.76],
+      ['front_fender',.76,2.14],
+    ];
+    // Wheel-arch bottom edge: raised around the front and rear tires.
+    function lowerEdge(z) {
+      let h=-.23;
+      for(const center of [-1.36,1.36]) {
+        const dz=z-center,r=.57;
+        if(Math.abs(dz)<r) h=Math.max(h,-.38+Math.sqrt(r*r-dz*dz));
+      }
+      return h;
+    }
+    for(const side of [-1,1]) {
+      const name=side<0?'left':'right';
+      for(const [part,z0,z1] of bodySections) {
+        surfacePart(visualBody,`${name}_${part}`,18,3,(u,v)=>{
+          const z=z0+(z1-z0)*u;
+          const y=lowerEdge(z)+(.405-lowerEdge(z))*v;
+          const x=side*(.942-.021*v + .009*Math.sin((z+2.14)/4.28*Math.PI));
+          return [x,y,z];
+        },part.includes('door')?paint:paintLight);
+      }
+      // Actual wheel-well arch trim, drawn over the open cutout.
+      for(const centerZ of [-1.36,1.36]) {
+        let prev=null;
+        for(let i=0;i<=12;i++) {
+          const a=i*Math.PI/12;
+          const z=centerZ-.57*Math.cos(a);
+          const y=-.38+.57*Math.sin(a);
+          const p=[side*.965,y,z];
+          if(prev) edge(visualBody,prev,p,.014,windowTrim);
+          prev=p;
+        }
+      }
+      // Door seams and handles; visually distinct doors will deform independently.
+      for(const z of [-.76,-.12,.76]) {
+        edge(visualBody,[side*.963,-.19,z],[side*.950,.413,z],.010,windowTrim);
+      }
+      edge(visualBody,[side*.960,.408,-2.10],[side*.960,.408,2.10],.012,paintShade);
+      for(const z of [-.46,.45]) {
+        solidPart(visualBody,`${name}_door_handle_${z>0?'front':'rear'}`,.055,.038,.18,chrome,side*.984,.285,z);
+        solidPart(visualBody,`${name}_handle_recess_${z>0?'front':'rear'}`,.018,.065,.235,frontMetal,side*.95,.278,z-.012);
+      }
+      // Mirror unit attached to the cabin, not to a moving wheel.
+      solidPart(visualBody,`${name}_mirror_base`,.22,.09,.12,frontMetal,side*1.00,.58,.75);
+      solidPart(visualBody,`${name}_mirror`,.23,.14,.16,paint,side*1.13,.62,.76);
+    }
+
+    // Bonnet / boot panels use a segmented grid, not a single stretched box.
+    surfacePart(visualBody,'hood',8,12,(u,v)=>{
+      const x=(u-.5)*1.49, z=.77+v*1.34;
+      const y=.50-.095*v+.026*(1-(x/.85)**2);
+      return [x,y,z];
+    },paint,true);
+    surfacePart(visualBody,'trunk',8,8,(u,v)=>{
+      const x=(u-.5)*1.58, z=-2.12+v*.91;
+      const y=.45+.028*Math.sin(v*Math.PI)+.014*(1-(x/.84)**2);
+      return [x,y,z];
+    },paint,true);
+    // Outer strips over each front fender meet the hood at a fine dark seam.
+    for(const side of [-1,1]) {
+      const name=side<0?'left':'right';
+      surfacePart(visualBody,`${name}_fender_top`,3,12,(u,v)=>{
+        const x=side*(.75+u*.18),z=.77+v*1.34;
+        return [x,.482-.10*v-.027*u,z];
+      },paintLight);
+      edge(visualBody,[side*.76,.50,.78],[side*.76,.405,2.11],.012,paintShade);
+    }
+    // The rear deck has separate quarter strips for future damage.
+    for(const side of [-1,1]) {
+      const name=side<0?'left':'right';
+      surfacePart(visualBody,`${name}_rear_deck`,2,8,(u,v)=>{
+        const x=side*(.79+u*.15),z=-2.12+v*.91;
+        return [x,.438+.016*Math.sin(Math.PI*v)-.022*u,z];
+      },paintLight);
+    }
+
+    // Cabin: four framed side windows, windshield, rear glass and roof.
+    polygonPart(visualBody,'windshield',[
+      [-.81,.50,.87],[.81,.50,.87],[.67,1.03,.47],[-.67,1.03,.47],
+    ],windowGlass);
+    polygonPart(visualBody,'rear_window',[
+      [.82,.49,-1.23],[-.82,.49,-1.23],[-.67,1.04,-.71],[.67,1.04,-.71],
+    ],windowGlass);
+    surfacePart(visualBody,'roof',6,6,(u,v)=>{
+      const x=(u-.5)*1.37,z=-.72+v*1.20;
+      return [x,1.05+.036*(1-(x/.71)**2),z];
+    },paintLight);
+    const windshieldTop=[-.67,1.05,.47], windshieldTopR=[.67,1.05,.47];
+    const windshieldBase=[-.81,.50,.87],windshieldBaseR=[.81,.50,.87];
+    for(const [a,b] of [
+      [windshieldTop,windshieldBase],[windshieldTopR,windshieldBaseR],
+      [windshieldTop,windshieldTopR],[windshieldBase,windshieldBaseR],
+      [[-.67,1.05,-.71],[-.82,.49,-1.23]],
+      [[.67,1.05,-.71],[.82,.49,-1.23]],
+      [[-.67,1.05,-.71],[.67,1.05,-.71]],
+    ]) edge(visualBody,a,b,.018,windowTrim);
+
+    for(const side of [-1,1]) {
+      const name=side<0?'left':'right';
+      const xBottom=side*.83, xTop=side*.69;
+      const frontWindow=[
+        [xBottom,.52,.73],[xBottom,.52,-.10],
+        [xTop,1.035,-.13],[xTop,1.035,.46],
+      ];
+      const rearWindow=[
+        [xBottom,.52,-.12],[xBottom,.52,-1.10],
+        [xTop,1.035,-.68],[xTop,1.035,-.15],
+      ];
+      polygonPart(visualBody,`${name}_front_glass`,frontWindow,windowGlass);
+      polygonPart(visualBody,`${name}_rear_glass`,rearWindow,windowGlass);
+      for(const points of [frontWindow,rearWindow]) for(let i=0;i<points.length;i++) {
+        edge(visualBody,points[i],points[(i+1)%points.length],.018,windowTrim);
+      }
+      // B-pillar and metal strip separating glass from doors.
+      edge(visualBody,[side*.84,.45,-.12],[side*.70,1.06,-.14],.044,paintShade);
+      edge(visualBody,[side*.85,.48,-1.11],[side*.69,1.06,-.70],.042,paint);
+      edge(visualBody,[side*.85,.48,.76],[side*.69,1.06,.46],.040,paint);
+    }
+
+    // Front and rear fascia are detachable, with individual head- and tail-lamps.
+    solidPart(visualBody,'front_fascia',1.94,.32,.13,paintShade,0,.21,2.15,true);
+    solidPart(visualBody,'grille',1.12,.23,.035,frontMetal,0,.25,2.231,true);
+    for(const side of [-1,1]) {
+      const name=side<0?'left':'right';
+      solidPart(visualBody,`${name}_headlight`,.36,.18,.046,cream,side*.76,.32,2.238);
+      solidPart(visualBody,`${name}_tail_light`,.45,.17,.055,rearLens,side*.69,.30,-2.238);
+    }
+    solidPart(visualBody,'rear_fascia',1.94,.35,.13,paintShade,0,.20,-2.15,true);
+    solidPart(visualBody,'front_bumper',2.12,.16,.19,chrome,0,-.14,2.24,true);
+    solidPart(visualBody,'rear_bumper',2.12,.16,.19,chrome,0,-.14,-2.24,true);
+    solidPart(visualBody,'front_air_intake',.95,.085,.042,frontMetal,0,.02,2.254);
+    solidPart(visualBody,'rear_plate',.50,.13,.038,cream,0,.26,-2.238);
+
+    // 2D numbers are generated at runtime with Canvas; no image downloads.
+    function makeNumberTexture() {
+      const canvas=document.createElement('canvas');
+      canvas.width=canvas.height=128;
+      const c=canvas.getContext('2d');
+      c.fillStyle='#eee7d4';c.fillRect(0,0,128,128);
+      c.strokeStyle='#282b2a';c.lineWidth=9;c.strokeRect(4,4,120,120);
+      c.textAlign='center';c.textBaseline='middle';
+      c.fillStyle='#252a2c';c.font='900 80px Arial,sans-serif';
+      c.fillText('27',64,68);
+      const tex=new THREE.CanvasTexture(canvas);
+      tex.colorSpace=THREE.SRGBColorSpace;
+      return tex;
+    }
+    const numberMaterial=new THREE.MeshBasicMaterial({map:makeNumberTexture(),side:THREE.DoubleSide});
+    for(const side of [-1,1]) {
+      const decal=new THREE.Mesh(new THREE.PlaneGeometry(.44,.43),numberMaterial);
+      decal.rotation.y=side*Math.PI/2;
+      decal.position.set(side*.970,.16,.36);
+      visualBody.add(decal);
+    }
+    const roofNumber=new THREE.Mesh(new THREE.PlaneGeometry(.54,.55),numberMaterial);
+    roofNumber.rotation.x=-Math.PI/2;
+    roofNumber.position.set(0,1.092,-.13);
+    visualBody.add(roofNumber);
+    // Body parts are individually addressable (hood, doors, fenders, bumpers).
+    // Actual damage/deformation will be implemented in v0.7+.
 
     const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     world.timestep = 1 / 60;
@@ -446,6 +685,16 @@
     });
     setSoundUI();
 
+    // Optional orbit camera makes it possible to inspect all car panels on mobile.
+    let inspectMode = false, inspectAngle = .6;
+    const inspectButton = document.getElementById('inspect-toggle');
+    function toggleInspect() {
+      inspectMode = !inspectMode;
+      inspectButton.setAttribute('aria-pressed', String(inspectMode));
+      inspectButton.textContent = inspectMode ? '↩ Езда' : '👁 Осмотр';
+    }
+    inspectButton.addEventListener('click', toggleInspect);
+
     const speedEl = document.getElementById('speed');
     const gearEl = document.getElementById('gear');
     const keyActions = new Set();
@@ -463,6 +712,7 @@
     window.addEventListener('keydown', event => {
       if (!event.repeat && (event.code in keyToControl)) unlockSound();
       if (event.code === 'KeyR') { event.preventDefault(); if (!event.repeat) resetCar(); return; }
+      if (event.code === 'KeyC') { event.preventDefault(); if (!event.repeat) toggleInspect(); return; }
       if (event.code === 'Digit1') { if (!event.repeat) selectPreset('arcade'); return; }
       if (event.code === 'Digit2') { if (!event.repeat) selectPreset('derby'); return; }
       if (event.code === 'Digit3') { if (!event.repeat) selectPreset('drift'); return; }
@@ -821,9 +1071,17 @@
       }
       if (updates === 4) accumulator = 0;
       updateVisualBody(delta);
-      cameraDesired.set(position.x - forward.x * 12.5, position.y + 7.5, position.z - forward.z * 12.5);
+      if (inspectMode) {
+        // Small orbit while the vehicle stays physically simulated.
+        inspectAngle += delta * .36;
+        cameraDesired.set(position.x + Math.sin(inspectAngle)*7.4,
+          position.y + 3.45, position.z + Math.cos(inspectAngle)*7.4);
+        cameraTarget.set(position.x,position.y+.22,position.z);
+      } else {
+        cameraDesired.set(position.x - forward.x * 12.5, position.y + 7.5, position.z - forward.z * 12.5);
+        cameraTarget.set(position.x + forward.x * 3.5, position.y + .4, position.z + forward.z * 3.5);
+      }
       camera.position.lerp(cameraDesired, 1 - Math.exp(-4.8 * delta));
-      cameraTarget.set(position.x + forward.x * 3.5, position.y + .4, position.z + forward.z * 3.5);
       camera.lookAt(cameraTarget);
       renderer.render(scene, camera);
       requestAnimationFrame(frame);
@@ -835,7 +1093,7 @@
     frame();
   } catch (error) {
     console.error('Wreck Circuit startup failed:', error);
-    showError('Не удалось запустить 3D-сцену v0.5: ' + (error?.message || String(error)));
+    showError('Не удалось запустить 3D-сцену v0.6: ' + (error?.message || String(error)));
   }
 </script>
 </body>
