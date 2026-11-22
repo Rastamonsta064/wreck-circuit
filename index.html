@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v0.8 — отлетающие детали кузова">
-  <title>Wreck Circuit — Detachable Parts Lab v0.8</title>
+  <meta name="description" content="Wreck Circuit v0.9 — повреждения от реальных столкновений">
+  <title>Wreck Circuit — Collision Damage Lab v0.9</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -48,9 +48,14 @@
     .damage-panel { position:absolute; z-index:4; left:50%; transform:translateX(-50%); bottom:max(14px,env(safe-area-inset-bottom));
       display:flex; flex-direction:column; align-items:center; gap:5px; pointer-events:none; max-width:calc(100vw - 330px); }
     .lab-tabs { display:flex; gap:4px; pointer-events:auto; }
-    .lab-tabs button { border:1px solid #6a7888; background:rgba(20,30,42,.86); color:#f1f5f9; padding:4px 11px;
+    .lab-tabs button { border:1px solid #6a7888; background:rgba(20,30,42,.86); color:#f1f5f9; padding:4px 9px;
       border-radius:7px; font:750 10px system-ui,sans-serif; touch-action:manipulation; cursor:pointer; }
     .lab-tabs button.active { background:#e7b75e; color:#23272d; border-color:#ffda8f; }
+    .lab-tabs button.auto-active { background:#2d6048; color:#f6f9f6; border-color:#8bd5ad; }
+    .impact-readout { max-width:min(330px,95vw); text-align:center; padding:4px 8px;
+      background:rgba(21,32,43,.86); color:#d5f0d8; border:1px solid #ffffff35;
+      border-radius:7px; font:750 10px system-ui,sans-serif; white-space:nowrap; pointer-events:none; }
+    .impact-readout.hurt { color:#ffe2a6; background:rgba(106,57,30,.92); }
     .damage-buttons[hidden] { display:none!important; }
     .damage-label { color:#fff; font-weight:800; font-size:10px; text-shadow:0 1px 5px #101820; letter-spacing:.045em; white-space:nowrap; }
     .damage-buttons { display:flex; gap:4px; justify-content:center; flex-wrap:nowrap; pointer-events:auto; }
@@ -63,6 +68,8 @@
       .damage-panel { bottom:max(8px,env(safe-area-inset-bottom)); max-width:calc(100vw - 325px); }
       .damage-buttons button { padding:7px 5px; font-size:9px; }
       .damage-label { font-size:9px; }
+      .impact-readout { font-size:9px; padding:3px 5px; }
+      .lab-tabs button { font-size:9px; padding:4px 7px; }
     }
     @media (max-width:690px) { .damage-panel { max-width:calc(100vw - 280px); } .damage-buttons { flex-wrap:wrap; } }
     @media (max-width:780px) { .damage-panel { bottom:max(85px,calc(env(safe-area-inset-bottom) + 77px)); } }
@@ -91,7 +98,7 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.8</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.9</span></div>
     <div class="hud-actions">
       <button id="inspect-toggle" class="restart" type="button" aria-pressed="false" aria-label="Переключить камеру осмотра">👁 Осмотр</button>
       <button id="audio-toggle" class="restart audio-toggle" type="button" aria-pressed="true" aria-label="Выключить звук">🔊 Звук</button>
@@ -107,7 +114,7 @@
     </div>
     <div id="mode-description" class="mode-description">Тяжёлый автомобиль · сбалансированное сцепление</div>
   </div>
-  <div class="help">WASD / стрелки — езда · Space — ручник · R — сброс · C — осмотр · 4–7 — вмятины · 8/9/-/= — отрыв</div>
+  <div class="help">WASD / стрелки — езда · Space — ручник · R — сброс · C — осмотр · автоповреждения при ударах · 4–7 — вмятины</div>
   <div class="touch-controls" aria-label="Кнопки управления на телефоне">
     <div class="group">
       <button class="ctrl" data-control="left" type="button" aria-label="Влево">◀</button>
@@ -121,9 +128,11 @@
   </div>
   <div class="damage-panel" aria-label="Тестирование повреждений кузова">
     <div class="damage-label" id="lab-status"><span id="lab-heading">ВМЯТИНЫ</span> · <span id="damage-counter">0</span> <span id="lab-unit">ударов</span></div>
+    <div class="impact-readout" id="impact-readout" aria-live="off">АВТО-УРОН: ВКЛ · УДАРЫ 0 · КУЗОВ 100%</div>
     <div class="lab-tabs" role="group" aria-label="Выбор теста кузова">
       <button id="lab-tab-dents" class="active" type="button" aria-pressed="true">Вмятины</button>
       <button id="lab-tab-detach" type="button" aria-pressed="false">Отрыв деталей</button>
+      <button id="auto-damage-toggle" class="auto-active" type="button" aria-pressed="true">Авто: ВКЛ</button>
     </div>
     <div class="damage-buttons" id="lab-dent-buttons">
       <button data-damage="front" type="button">НОС</button>
@@ -465,7 +474,7 @@
     roofNumber.position.set(0,1.092,-.13);
     visualBody.add(roofNumber);
     // Body parts are individually addressable (hood, doors, fenders, bumpers).
-    // v0.7: scripted cosmetic dents. Real collision-triggered damage comes in v0.9.
+    // v0.9: scripted dents plus real Rapier collision-triggered damage.
     // Damage operates in visualBody-local coordinates, NOT in physics world coordinates.
     // Moving vertices never changes the Rapier chassis collider or wheel suspension.
     const deformableNames = [
@@ -519,6 +528,8 @@
     function dentPanel(spec){
       const [name,impact,normal,radius,depth,maxDepth]=spec;
       const mesh=deformableMeshes.get(name);
+      // Detached panels no longer use visualBody-local vertex coordinates.
+      if(!mesh || mesh.parent!==visualBody) return 0;
       const pos=mesh.geometry.getAttribute('position');
       const col=mesh.geometry.getAttribute('color');
       const rest=mesh.userData.restPositions;
@@ -587,6 +598,8 @@
         mesh.geometry.computeVertexNormals();
         mesh.geometry.computeBoundingSphere();
       }
+      resetAutoDamageState();
+      updateLabStatus();
     }
     document.querySelectorAll('[data-damage]').forEach(button=>{
       button.addEventListener('click',()=>applyTestDent(button.dataset.damage));
@@ -595,13 +608,20 @@
 
     const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     world.timestep = 1 / 60;
+    // Rapier collision events are filtered to obstacles, not the ground or loose debris.
+    const impactTargets=new Set();
+    const impactEvents=new RAPIER.EventQueue(true);
     // A static floor is required: four wheel rays must hit something solid.
     world.createCollider(RAPIER.ColliderDesc.cuboid(40, .25, 40)
       .setTranslation(0, -.25, 0).setFriction(0.95));
-    const staticBox = (hx, hy, hz, x, y, z) => world.createCollider(
-      RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z)
-        .setRestitution(0.09).setFriction(0.8)
-    );
+    const staticBox = (hx, hy, hz, x, y, z) => {
+      const collider=world.createCollider(
+        RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z)
+          .setRestitution(0.09).setFriction(0.8)
+      );
+      impactTargets.add(collider.handle);
+      return collider;
+    };
     staticBox(40.4, .9, .4, 0, .9, -40.4);
     staticBox(40.4, .9, .4, 0, .9, 40.4);
     staticBox(.4, .9, 40.4, -40.4, .9, 0);
@@ -621,13 +641,18 @@
     // Inertias (kg m^2): X = pitch, Y = yaw, Z = roll.
     const CAR_MASS = 1040;
     const CENTER_OF_MASS_Y = -0.38;
-    world.createCollider(RAPIER.ColliderDesc.cuboid(.95, .35, 2.06)
+    const chassisCollider=world.createCollider(RAPIER.ColliderDesc.cuboid(.95, .35, 2.06)
       .setMassProperties(
         CAR_MASS,
         { x:0, y:CENTER_OF_MASS_Y, z:0 },
         { x:1750, y:2200, z:1100 },
         { x:0, y:0, z:0, w:1 }
       ).setFriction(.62).setRestitution(.02), carBody);
+    // Receive both contact-start and contact-force reports from the real chassis.
+    // The threshold is in Newtons. Below it, tiny contact forces are ignored.
+    chassisCollider.setActiveEvents(
+      RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS);
+    chassisCollider.setContactForceEventThreshold(12000);
     const carMass = carBody.mass();
     const vehicle = world.createVehicleController(carBody);
     // FIX v0.4.2: Rapier's raycast vehicle uses local +X as forward by default.
@@ -683,8 +708,9 @@
     const movingBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(-5, .65, 16).setLinearDamping(.9)
       .setAngularDamping(1.3).setCcdEnabled(true));
-    world.createCollider(RAPIER.ColliderDesc.cuboid(1.2,.65,1.2)
+    const movableCollider=world.createCollider(RAPIER.ColliderDesc.cuboid(1.2,.65,1.2)
       .setDensity(35).setFriction(.72).setRestitution(.08), movingBody);
+    impactTargets.add(movableCollider.handle);
     staticBox(1.7,.9,1.7,10,.9,18);
 
     // v0.8: detached parts use their own lightweight rigid bodies. The chassis
@@ -803,6 +829,198 @@
     });
     document.getElementById('detach-clear').addEventListener('click',resetDamage);
     setLabMode('dents');
+
+    // v0.9: REAL impact detection, independent of the test dent buttons.
+    // Contact-force events provide force and a contact manifold provides a
+    // world-space point. This is an arcade approximation, not soft-body physics.
+    const impactReadout=document.getElementById('impact-readout');
+    const autoDamageButton=document.getElementById('auto-damage-toggle');
+    const damageZones={front:0,rear:0,left:0,right:0};
+    const zoneLabels={front:'НОС',rear:'КОРМА',left:'ЛЕВО',right:'ПРАВО'};
+    const recentContactStarts=new Map(); // collider handle -> start time
+    const zoneCooldowns=new Map();        // zone+other collider -> last hit
+    const impactPoint=new THREE.Vector3();
+    const localImpact=new THREE.Vector3();
+    const collisionNormal=new THREE.Vector3();
+    const relativeVelocity=new THREE.Vector3();
+    const carVelocityBefore=new THREE.Vector3();
+    const blueVelocityBefore=new THREE.Vector3();
+    let autoDamageEnabled=true;
+    let impactCount=0;
+    let collisionTime=0;
+    let lastImpactZone='';
+    let impactFlashTime=-100;
+
+    function updateImpactReadout(){
+      const total=Object.values(damageZones).reduce((sum,x)=>sum+x,0);
+      const health=Math.max(0,Math.round(100-total/4));
+      const suffix=lastImpactZone && collisionTime-impactFlashTime<2.0
+        ? ` · ${zoneLabels[lastImpactZone]} ${Math.round(damageZones[lastImpactZone])}%` : '';
+      impactReadout.textContent=`АВТО-УРОН: ${autoDamageEnabled?'ВКЛ':'ВЫКЛ'} · УДАРЫ ${impactCount} · КУЗОВ ${health}%${suffix}`;
+      impactReadout.classList.toggle('hurt',collisionTime-impactFlashTime<.7);
+    }
+    autoDamageButton.addEventListener('click',()=>{
+      autoDamageEnabled=!autoDamageEnabled;
+      autoDamageButton.classList.toggle('auto-active',autoDamageEnabled);
+      autoDamageButton.setAttribute('aria-pressed',String(autoDamageEnabled));
+      autoDamageButton.textContent=autoDamageEnabled?'Авто: ВКЛ':'Авто: ВЫКЛ';
+      recentContactStarts.clear();
+      updateImpactReadout();
+    });
+
+    function resetAutoDamageState(){
+      for(const key of Object.keys(damageZones)) damageZones[key]=0;
+      recentContactStarts.clear();
+      zoneCooldowns.clear();
+      impactCount=0;
+      lastImpactZone='';
+      impactFlashTime=-100;
+      updateImpactReadout();
+    }
+
+    function getImpactContactPoint(otherCollider,forceDirection,out){
+      let count=0;
+      out.set(0,0,0);
+      // solverContactPoint is expressed in WORLD space (Rapier 0.19.x).
+      world.contactPair(chassisCollider,otherCollider,(manifold)=>{
+        for(let i=0;i<manifold.numSolverContacts();i++){
+          const p=manifold.solverContactPoint(i);
+          if(!p) continue;
+          out.x+=p.x; out.y+=p.y; out.z+=p.z;
+          count++;
+        }
+      });
+      if(count){out.multiplyScalar(1/count);return true;}
+      // CCD contacts may have no solver contact. Estimate the front/side
+      // location using the direction of the obstacle instead of crashing.
+      const carPos=carBody.translation();
+      const obstacle=otherCollider.translation();
+      const toObstacle=new THREE.Vector3(obstacle.x-carPos.x,0,obstacle.z-carPos.z);
+      if(toObstacle.lengthSq()<.01) toObstacle.copy(forceDirection);
+      toObstacle.y=0;
+      if(toObstacle.lengthSq()<.01) toObstacle.set(0,0,1);
+      toObstacle.normalize();
+      out.set(carPos.x+toObstacle.x*1.2, carPos.y, carPos.z+toObstacle.z*1.2);
+      return false;
+    }
+
+    function classifyImpact(point){
+      // Car and visualBody are synchronized after the Rapier physics step.
+      visualBody.updateWorldMatrix(true,false);
+      localImpact.copy(point);
+      visualBody.worldToLocal(localImpact);
+      const sideScore=Math.abs(localImpact.x)/.95;
+      const endScore=Math.abs(localImpact.z)/2.06;
+      if(endScore>=sideScore*.90) return localImpact.z>=0?'front':'rear';
+      return localImpact.x<0?'left':'right';
+    }
+
+    function dentAtCollision(zone,score){
+      const x=THREE.MathUtils.clamp(localImpact.x,-.84,.84);
+      const z=THREE.MathUtils.clamp(localImpact.z,-2.04,2.04);
+      const inc=.045+.16*score;
+      const radius=.68+.24*score;
+      let changed=0;
+      if(zone==='front'){
+        changed+=dentPanel(['hood',[x,.46,THREE.MathUtils.clamp(z,1.28,1.95)],
+          [0,-1,-.15],radius+.10,inc,.42]);
+        if(x<-.32) changed+=dentPanel(['left_fender_top',[-.83,.44,1.52],
+          [0,-1,-.12],.68,inc*.5,.26]);
+        if(x>.32) changed+=dentPanel(['right_fender_top',[.83,.44,1.52],
+          [0,-1,-.12],.68,inc*.5,.26]);
+      } else if(zone==='rear'){
+        changed+=dentPanel(['trunk',[x,.46,THREE.MathUtils.clamp(z,-1.98,-1.27)],
+          [0,-1,.15],radius+.10,inc,.42]);
+        if(x<-.32) changed+=dentPanel(['left_rear_deck',[-.84,.43,-1.65],
+          [0,-1,.12],.68,inc*.5,.26]);
+        if(x>.32) changed+=dentPanel(['right_rear_deck',[.84,.43,-1.65],
+          [0,-1,.12],.68,inc*.5,.26]);
+      } else {
+        const side=zone==='left'?'left':'right';
+        const normal=side==='left'?[1,0,0]:[-1,0,0];
+        const part=z>.78?'front_fender':z>-.14?'front_door':z>-.79?'rear_door':'rear_fender';
+        changed+=dentPanel([`${side}_${part}`,
+          [side==='left'?-.95:.95,.20,z],normal,radius,inc,.44]);
+      }
+      return changed;
+    }
+
+    function applyCollisionDamage(zone,closingSpeed,force,point,otherHandle){
+      const key=`${zone}:${otherHandle}`;
+      if(collisionTime-(zoneCooldowns.get(key)??-100)<.42) return;
+      // 3.5 m/s (~13 km/h) minimum, so parking nudges don't wreck the car.
+      if(closingSpeed<3.5||force<12000) return;
+      const score=THREE.MathUtils.clamp((closingSpeed-3.5)/12,0,1)*.75+
+        THREE.MathUtils.clamp(force/(carMass*60*7),0,1)*.25;
+      const severity=THREE.MathUtils.clamp(score,.08,1);
+      const changed=dentAtCollision(zone,severity);
+      if(!changed && (zone==='front'||zone==='rear')){
+        // Already-detached hood/trunk can still register collision damage.
+      }
+      const points=Math.round(7+severity*36);
+      damageZones[zone]=Math.min(100,damageZones[zone]+points);
+      collisionTime=Math.max(0,collisionTime);
+      zoneCooldowns.set(key,collisionTime);
+      impactCount++;
+      lastImpactZone=zone;
+      impactFlashTime=collisionTime;
+      // Break-offs are progressive; no loose bodies are added per frame.
+      if(zone==='front'){
+        if(damageZones.front>=38) detachPart('front_bumper');
+        if(damageZones.front>=82) detachPart('hood');
+      } else if(zone==='rear'){
+        if(damageZones.rear>=38) detachPart('rear_bumper');
+        if(damageZones.rear>=82) detachPart('trunk');
+      }
+      // The existing impact sound is synthesized; avoid audio on tiny taps.
+      playImpact(Math.max(1.6,Math.min(14,closingSpeed*.65)));
+      updateImpactReadout();
+    }
+
+    function processImpactEvents(dt){
+      collisionTime+=dt;
+      impactEvents.drainCollisionEvents((handle1,handle2,started)=>{
+        const other=handle1===chassisCollider.handle?handle2:
+          handle2===chassisCollider.handle?handle1:null;
+        if(other===null || !impactTargets.has(other)) return;
+        if(started) recentContactStarts.set(other,collisionTime);
+        else recentContactStarts.delete(other);
+      });
+      impactEvents.drainContactForceEvents(event=>{
+        if(!autoDamageEnabled) return;
+        const h1=event.collider1(),h2=event.collider2();
+        const other=h1===chassisCollider.handle?h2:
+          h2===chassisCollider.handle?h1:null;
+        if(other===null || !impactTargets.has(other)) return;
+        const since=recentContactStarts.get(other);
+        if(since===undefined || collisionTime-since>.12) return;
+        const normal=event.maxForceDirection();
+        const horiz=Math.hypot(normal.x,normal.z);
+        if(horiz<.58) return; // Ignore road, suspension, ceiling contacts.
+        collisionNormal.set(normal.x/horiz,0,normal.z/horiz);
+        relativeVelocity.copy(carVelocityBefore);
+        if(other===movableCollider.handle) relativeVelocity.sub(blueVelocityBefore);
+        const closing=Math.abs(relativeVelocity.dot(collisionNormal));
+        const force=event.maxForceMagnitude();
+        if(!Number.isFinite(force)||!Number.isFinite(closing)) return;
+        const otherCollider=world.getCollider(other);
+        if(!otherCollider) return;
+        getImpactContactPoint(otherCollider,collisionNormal,impactPoint);
+        const zone=classifyImpact(impactPoint);
+        applyCollisionDamage(zone,closing,force,impactPoint,other);
+        recentContactStarts.delete(other);
+      });
+      // Restrict to the first few frames of a fresh contact. Otherwise
+      // continual pushing at a wall could trigger endless new damage.
+      for(const [handle,started] of recentContactStarts){
+        if(collisionTime-started>.15) recentContactStarts.delete(handle);
+      }
+      if(collisionTime-impactFlashTime<.9 ||
+        (collisionTime-impactFlashTime>=.9 && collisionTime-impactFlashTime<.95)){
+        updateImpactReadout();
+      }
+    }
+    updateImpactReadout();
 
     // Three deliberately different starting points, not final handling tuning.
     const PRESETS = Object.freeze({
@@ -1321,12 +1539,18 @@
         const angular=carBody.angvel();
         carBody.applyTorqueImpulse({x:0,y:-angular.y*carMass*.22*drive.yawAssist*dt,z:0},true);
       }
-      world.step();
+      // Capture pre-impact velocities before the solver resolves a collision.
+      carVelocityBefore.set(oldVelX,oldVelY,oldVelZ);
+      const bluePre=movingBody.linvel();
+      blueVelocityBefore.set(bluePre.x,bluePre.y,bluePre.z);
+      world.step(impactEvents);
       syncBodies();
+      processImpactEvents(dt);
       const after=carBody.linvel();
       const dvX=after.x-oldVelX, dvY=after.y-oldVelY, dvZ=after.z-oldVelZ;
       const impulseSpeed=Math.hypot(dvX,dvY,dvZ);
-      if (impulseSpeed>1.35 && horizontalSpeed>2.5) playImpact(impulseSpeed);
+      if (impulseSpeed>1.9 && horizontalSpeed>3.5 && collisionTime-impactFlashTime>.20)
+        playImpact(impulseSpeed);
       rightAxis.set(1,0,0).applyQuaternion(carQuaternion);
       rightAxis.y=0;
       if (rightAxis.lengthSq()>.01) rightAxis.normalize();
