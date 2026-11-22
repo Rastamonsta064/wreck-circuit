@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v0.4 — лаборатория автомобильной физики">
-  <title>Wreck Circuit — Vehicle Physics Lab v0.4</title>
+  <meta name="description" content="Wreck Circuit v0.4.1 — исправление автомобильной физики">
+  <title>Wreck Circuit — Vehicle Physics Lab v0.4.1</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -62,7 +62,7 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.4</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.4.1</span></div>
     <button id="restart" class="restart" type="button">↻ Перезапуск</button>
   </div>
   <div class="mode-panel" role="group" aria-label="Режим управления">
@@ -194,6 +194,17 @@
       .setDensity(170).setFriction(.65).setRestitution(.04), carBody);
     const carMass = carBody.mass();
     const vehicle = world.createVehicleController(carBody);
+    // FIX v0.4.1: Rapier's raycast vehicle uses local +X as forward by default.
+    // This project's car mesh and wheel positions use local +Z as the nose.
+    // Without this, wheel traction is calculated along the WRONG axis.
+    const forwardAxisSetter = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(vehicle), 'setIndexForwardAxis');
+    if (forwardAxisSetter?.set) vehicle.setIndexForwardAxis = 2;
+    else if (typeof vehicle.setIndexForwardAxis === 'function') vehicle.setIndexForwardAxis(2);
+    else vehicle.indexForwardAxis = 2;
+    if (vehicle.indexForwardAxis !== 2) {
+      throw new Error('Rapier: не удалось установить продольную ось Z автомобиля');
+    }
     const WHEEL_RADIUS = .35;
     const WHEEL_REST_LENGTH = .32;
     const wheelAnchors = [
@@ -249,7 +260,7 @@
         frontSide: 1.40, rearSide: 1.46, slip: 8.0,
         handbrakeRearSide: .46, handbrakeRearSlip: 1.2,
         spring: 31, compression: 4.1, relaxation: 4.5,
-        downforce: 16, yawAssist: .62,
+        downforce: 0, yawAssist: .62,
       },
       derby: {
         name: 'Derby', description: 'Тяжёлый кузов · контролируемый снос',
@@ -258,7 +269,7 @@
         frontSide: 1.25, rearSide: 1.08, slip: 6.5,
         handbrakeRearSide: .30, handbrakeRearSlip: .85,
         spring: 27, compression: 4.6, relaxation: 5.0,
-        downforce: 18, yawAssist: .42,
+        downforce: 0, yawAssist: .42,
       },
       drift: {
         name: 'Drift', description: 'Скользит задняя ось · учись контррулить',
@@ -267,7 +278,7 @@
         frontSide: 1.42, rearSide: .70, slip: 4.2,
         handbrakeRearSide: .18, handbrakeRearSlip: .55,
         spring: 29, compression: 4.5, relaxation: 4.9,
-        downforce: 10, yawAssist: .12,
+        downforce: 0, yawAssist: .12,
       },
     });
     let selectedPreset = 'derby';
@@ -381,7 +392,8 @@
       gearEl.textContent=speedAlong>.35?'D':speedAlong<-.35?'R':reverseEngaged?'R':'N';
       wheelContacts=0;
       for(let i=0;i<4;i++) if(vehicle.wheelIsInContact(i)) wheelContacts++;
-      wheelStatus.textContent=`●${wheelContacts}/4`;
+      wheelStatus.textContent=`●${wheelContacts}/4 · Y${t.y.toFixed(2)} · Z→`;
+      wheelStatus.title='Колёса на земле · высота кузова · ось движения';
     }
 
     function resetCar() {
@@ -401,6 +413,7 @@
       }
       steering=0;
       reverseEngaged=false;
+      carBody.wakeUp();
       syncBodies();
       camera.position.set(0,9.4,-13.5);
       camera.lookAt(0,1.3,2);
@@ -483,7 +496,7 @@
     window.addEventListener('resize', resize);
     resize();
     function frame() {
-      requestAnimationFrame(frame);
+      try {
       const delta = Math.min(clock.getDelta(), 0.05);
       accumulator += delta;
       const fixedDt = 1 / 60;
@@ -499,6 +512,11 @@
       cameraTarget.set(position.x + forward.x * 3.5, position.y + .4, position.z + forward.z * 3.5);
       camera.lookAt(cameraTarget);
       renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+      } catch (error) {
+        console.error('Wreck Circuit: physics update failed', error);
+        showError('Ошибка физики: ' + (error?.message || String(error)) + '. Сообщи мне текст ошибки.');
+      }
     }
     frame();
   } catch (error) {
