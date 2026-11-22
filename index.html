@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v1.0 — Caprice 80s Sedan">
-  <title>Wreck Circuit — Caprice 80s v1.0</title>
+  <meta name="description" content="Wreck Circuit v1.0.1 — Caprice 80s Sedan">
+  <title>Wreck Circuit — Caprice 80s v1.0.1</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -98,7 +98,7 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v1.0</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v1.0.1</span></div>
     <div class="hud-actions">
       <button id="inspect-toggle" class="restart" type="button" aria-pressed="false" aria-label="Переключить камеру осмотра">👁 Осмотр</button>
       <button id="audio-toggle" class="restart audio-toggle" type="button" aria-pressed="true" aria-label="Выключить звук">🔊 Звук</button>
@@ -224,7 +224,7 @@
     const visualBody = new THREE.Group();
     car.add(visualBody);
 
-    // v1.0: Full-size 1980s American sedan, Caprice-inspired silhouette.
+    // v1.0.1: Full-size 1980s American sedan, Caprice-inspired silhouette.
     // Local +Z = FRONT. The full-length 5.35 m body is centered around Z=0.
     // All major components remain individually addressable for GTA-style damage.
     // visualBody is lowered relative to the chassis: a low greenhouse, not an SUV.
@@ -1130,10 +1130,26 @@
       bass: null, engineGain: null, bassGain: null, tyreGain: null,
       hissSource: null, impactCooldown: 0,
     };
+    // iOS normally routes Web Audio as ambient, which can be muted by the
+    // hardware Silent switch. Supported Safari versions expose AudioSession.
+    function configurePlaybackSession() {
+      try {
+        if (navigator.audioSession && navigator.audioSession.type !== 'playback') {
+          navigator.audioSession.type = 'playback';
+        }
+      } catch (error) { console.warn('AudioSession playback unavailable:', error); }
+    }
+    configurePlaybackSession();
     const setSoundUI = () => {
-      audioButton.textContent = audio.enabled ? '🔊 Звук' : '🔇 Звук';
-      audioButton.setAttribute('aria-pressed', String(audio.enabled));
-      audioButton.setAttribute('aria-label', audio.enabled ? 'Выключить звук' : 'Включить звук');
+      const state = audio.ctx?.state || 'not-started';
+      const active = audio.enabled && state === 'running';
+      audioButton.textContent = !audio.enabled ? '🔇 Звук: выкл'
+        : active ? '🔊 Звук: вкл' : '🔊 Включить звук';
+      audioButton.setAttribute('aria-pressed', String(active));
+      audioButton.setAttribute('aria-label', !audio.enabled ? 'Включить звук'
+        : active ? 'Выключить звук' : 'Запустить и проверить звук');
+      audioButton.title = 'Web Audio: ' + state + (navigator.audioSession ?
+        ' / AudioSession: ' + navigator.audioSession.type : '');
     };
     function createNoiseBuffer(ctx) {
       const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate), ctx.sampleRate);
@@ -1141,8 +1157,9 @@
       for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
       return buffer;
     }
-    function unlockSound() {
+    function unlockSound(testTone = false) {
       if (!audio.enabled) return;
+      configurePlaybackSession();
       const Context = window.AudioContext || window.webkitAudioContext;
       if (!Context) {
         audio.enabled = false;
@@ -1152,6 +1169,7 @@
       if (!audio.ctx) {
         try {
           const ctx = audio.ctx = new Context();
+          ctx.onstatechange = setSoundUI;
           const master = audio.master = ctx.createGain();
           master.gain.value = 0.20;
           master.connect(ctx.destination);
@@ -1195,7 +1213,36 @@
           return;
         }
       }
-      if (audio.ctx.state === 'suspended') audio.ctx.resume().catch(() => {});
+      // iOS Safari can expose either suspended OR interrupted after
+      // switching tabs / locking the device. Resume on a trusted gesture.
+      if (audio.ctx.state !== 'running' && audio.ctx.state !== 'closed') {
+        audio.ctx.resume().then(setSoundUI).catch(error => {
+          console.warn('Audio resume failed:', error);
+          setSoundUI();
+        });
+      }
+      // A short audible diagnostic tone when the user explicitly presses
+      // the sound button. Schedule it synchronously in the gesture so Safari
+      // is allowed to start it even if the context is being resumed.
+      if (testTone) playTestTone();
+      setSoundUI();
+    }
+    function playTestTone() {
+      if (!audio.ctx || !audio.master) return;
+      const ctx = audio.ctx;
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(540, now);
+      osc.frequency.linearRampToValueAtTime(720, now + .13);
+      gain.gain.setValueAtTime(.0001, now);
+      gain.gain.linearRampToValueAtTime(.38, now + .02);
+      gain.gain.exponentialRampToValueAtTime(.0001, now + .22);
+      osc.connect(gain).connect(audio.master);
+      osc.start(now);
+      osc.stop(now + .24);
+      osc.onended = () => { osc.disconnect(); gain.disconnect(); };
     }
     function playImpact(severity) {
       if (!audio.enabled || !audio.ctx || audio.ctx.state !== 'running') return;
@@ -1233,11 +1280,30 @@
       audio.tyreGain.gain.setTargetAtTime(hasContact ? Math.min(.22, slip * .09) : 0, t, .06);
     }
     audioButton.addEventListener('click', () => {
-      audio.enabled = !audio.enabled;
-      if (audio.enabled) unlockSound();
-      if (audio.master && audio.ctx) audio.master.gain.setTargetAtTime(audio.enabled ? .20 : 0, audio.ctx.currentTime, .025);
+      if (!audio.enabled) {
+        // Explicitly unmute, and play a short diagnostic tone.
+        audio.enabled = true;
+        if (audio.master && audio.ctx) audio.master.gain.setTargetAtTime(.20, audio.ctx.currentTime, .025);
+        unlockSound(true);
+      } else if (!audio.ctx || audio.ctx.state !== 'running') {
+        // Crucial: the FIRST click enables/starts audio rather than toggling
+        // the boolean from true to false before AudioContext exists.
+        unlockSound(true);
+      } else {
+        audio.enabled = false;
+        audio.master.gain.setTargetAtTime(0, audio.ctx.currentTime, .025);
+      }
       setSoundUI();
     });
+    // Browser-specific user activation paths. Retain listeners so Safari can
+    // recover after an interruption when a player touches the screen again.
+    function tryAudioOnGesture(event) {
+      if (audioButton.contains(event.target)) return; // click handles diagnostic
+      if (audio.enabled && (!audio.ctx || audio.ctx.state !== 'running')) unlockSound();
+    }
+    document.addEventListener('touchstart', tryAudioOnGesture, { capture: true, passive: true });
+    document.addEventListener('pointerdown', tryAudioOnGesture, { capture: true, passive: true });
+    document.addEventListener('keydown', tryAudioOnGesture, { capture: true });
     setSoundUI();
 
     // Optional orbit camera makes it possible to inspect all car panels on mobile.
@@ -1285,10 +1351,10 @@
     });
     window.addEventListener('blur', clearInput);
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) {
-        clearInput();
-        if (audio.ctx && audio.ctx.state === 'running') audio.ctx.suspend().catch(() => {});
-      }
+      if (document.hidden) clearInput();
+      // Do not manually suspend here: iOS itself may interrupt the context.
+      // Its next trusted tap will attempt resume for suspended/interrupted.
+      setSoundUI();
     });
     document.querySelectorAll('[data-control]').forEach(button => {
       const action = button.dataset.control;
