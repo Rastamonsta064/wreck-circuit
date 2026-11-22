@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v0.4.2 — настройка управляемости и устойчивости">
-  <title>Wreck Circuit — Vehicle Physics Lab v0.4.2</title>
+  <meta name="description" content="Wreck Circuit v0.5 — кузов, следы шин и звуки">
+  <title>Wreck Circuit — Visual & Audio Effects v0.5</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -21,6 +21,9 @@
     .version { font-size: 9px; color: #c5ced8; font-weight: 650; padding-left: 3px; }
     .restart { pointer-events: auto; border: 1px solid rgba(255,255,255,.15); border-radius: 11px; color: white; background: rgba(18,27,36,.8); padding: 12px 14px; font: 700 13px system-ui,sans-serif; cursor: pointer; -webkit-tap-highlight-color: transparent; }
     .restart:active { background: #344454; }
+    .hud-actions { display: flex; align-items: flex-start; gap: 7px; pointer-events: auto; }
+    .audio-toggle { white-space: nowrap; }
+    .audio-toggle[aria-pressed="false"] { color: #bbc5ce; background: rgba(18,27,36,.6); }
     .help { z-index: 2; position: absolute; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); background: rgba(18,27,36,.6); color: #fff; border-radius: 9px; padding: 9px 14px; white-space: nowrap; font-size: 12px; pointer-events: none; }
     .touch-controls { position: absolute; z-index: 3; bottom: max(15px, env(safe-area-inset-bottom)); left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; pointer-events: none; }
     .group { display: flex; align-items: flex-end; gap: clamp(6px, 1.5vw, 13px); pointer-events: none; }
@@ -54,7 +57,9 @@
     @media (max-height: 420px) {
       .ctrl { --h: clamp(48px, 13vh, 62px); width: clamp(49px, 10vw, 67px); border-radius: 12px; }
       .touch-controls { bottom: max(6px, env(safe-area-inset-bottom)); }
-      .restart { padding: 9px 12px; }
+      .restart { padding: 9px 10px; }
+      .hud-actions { gap: 4px; }
+      .audio-toggle { font-size: 12px; }
     }
   </style>
 </head>
@@ -62,8 +67,11 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.4.2</span></div>
-    <button id="restart" class="restart" type="button">↻ Перезапуск</button>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.5</span></div>
+    <div class="hud-actions">
+      <button id="audio-toggle" class="restart audio-toggle" type="button" aria-pressed="true" aria-label="Выключить звук">🔊 Звук</button>
+      <button id="restart" class="restart" type="button">↻ Перезапуск</button>
+    </div>
   </div>
   <div class="mode-panel" role="group" aria-label="Режим управления">
     <div class="mode-title">НАСТРОЙКА ФИЗИКИ <span id="wheel-status">○○○○</span></div>
@@ -151,21 +159,24 @@
       block(scene, 2, 0.15, 2, curbMat, x, 0.075, z);
     }
 
-    // ----------------- v0.4.2: tuned raycast-wheel vehicle -----------------
+    // ----------------- tuned raycast-wheel vehicle (same as v0.4.2) -----------------
     // All car parts are simple shapes. Local +Z is the nose; the physics
     // body's center is the car group's origin. Each wheel is visual only;
     // tire forces and suspension are calculated by Rapier raycasts.
     const car = new THREE.Group();
     scene.add(car);
-    block(car, 2.0, 0.65, 4.18, yellowMat, 0, 0.05, 0);
-    block(car, 1.72, 0.72, 2.05, glassMat, 0, 0.73, -0.31);
-    block(car, 1.8, 0.16, 1.05, yellowMat, 0, 0.46, 1.52);
+    // Render-only pivot. Roll/pitch never enter Rapier and never move wheel rays.
+    const visualBody = new THREE.Group();
+    car.add(visualBody);
+    block(visualBody, 2.0, 0.65, 4.18, yellowMat, 0, 0.05, 0);
+    block(visualBody, 1.72, 0.72, 2.05, glassMat, 0, 0.73, -0.31);
+    block(visualBody, 1.8, 0.16, 1.05, yellowMat, 0, 0.46, 1.52);
     for (const x of [-0.70, 0.70]) {
-      block(car, .4, .14, .08, lampMat, x, 0.17, 2.1);
-      block(car, .4, .14, .08, redMat, x, 0.17, -2.1);
+      block(visualBody, .4, .14, .08, lampMat, x, 0.17, 2.1);
+      block(visualBody, .4, .14, .08, redMat, x, 0.17, -2.1);
     }
-    block(car, 1.9, .16, .13, rubberMat, 0, -0.20, 2.14);
-    block(car, 1.9, .16, .13, rubberMat, 0, -0.20, -2.14);
+    block(visualBody, 1.9, .16, .13, rubberMat, 0, -0.20, 2.14);
+    block(visualBody, 1.9, .16, .13, rubberMat, 0, -0.20, -2.14);
 
     const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     world.timestep = 1 / 60;
@@ -318,6 +329,123 @@
     });
     selectPreset(selectedPreset);
 
+    // Lightweight synthesized sound: no samples and no external audio assets.
+    const audioButton = document.getElementById('audio-toggle');
+    const audio = {
+      enabled: true, ctx: null, master: null, engine: null,
+      bass: null, engineGain: null, bassGain: null, tyreGain: null,
+      hissSource: null, impactCooldown: 0,
+    };
+    const setSoundUI = () => {
+      audioButton.textContent = audio.enabled ? '🔊 Звук' : '🔇 Звук';
+      audioButton.setAttribute('aria-pressed', String(audio.enabled));
+      audioButton.setAttribute('aria-label', audio.enabled ? 'Выключить звук' : 'Включить звук');
+    };
+    function createNoiseBuffer(ctx) {
+      const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate), ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      return buffer;
+    }
+    function unlockSound() {
+      if (!audio.enabled) return;
+      const Context = window.AudioContext || window.webkitAudioContext;
+      if (!Context) {
+        audio.enabled = false;
+        setSoundUI();
+        return;
+      }
+      if (!audio.ctx) {
+        try {
+          const ctx = audio.ctx = new Context();
+          const master = audio.master = ctx.createGain();
+          master.gain.value = 0.20;
+          master.connect(ctx.destination);
+
+          const engineFilter = ctx.createBiquadFilter();
+          engineFilter.type = 'lowpass';
+          engineFilter.frequency.value = 420;
+          engineFilter.Q.value = 0.7;
+          engineFilter.connect(master);
+          const engine = audio.engine = ctx.createOscillator();
+          engine.type = 'sawtooth';
+          const engineGain = audio.engineGain = ctx.createGain();
+          engineGain.gain.value = 0;
+          engine.connect(engineGain).connect(engineFilter);
+          engine.start();
+          const bass = audio.bass = ctx.createOscillator();
+          bass.type = 'triangle';
+          const bassGain = audio.bassGain = ctx.createGain();
+          bassGain.gain.value = 0;
+          bass.connect(bassGain).connect(engineFilter);
+          bass.start();
+
+          const hissFilter = ctx.createBiquadFilter();
+          hissFilter.type = 'bandpass';
+          hissFilter.frequency.value = 1200;
+          hissFilter.Q.value = 0.6;
+          const tyreGain = audio.tyreGain = ctx.createGain();
+          tyreGain.gain.value = 0;
+          hissFilter.connect(tyreGain).connect(master);
+          const hiss = audio.hissSource = ctx.createBufferSource();
+          hiss.buffer = createNoiseBuffer(ctx);
+          hiss.loop = true;
+          hiss.connect(hissFilter);
+          hiss.start();
+        } catch (error) {
+          console.warn('Audio unavailable:', error);
+          audio.enabled = false;
+          if (audio.ctx) audio.ctx.close().catch(() => {});
+          audio.ctx = null;
+          setSoundUI();
+          return;
+        }
+      }
+      if (audio.ctx.state === 'suspended') audio.ctx.resume().catch(() => {});
+    }
+    function playImpact(severity) {
+      if (!audio.enabled || !audio.ctx || audio.ctx.state !== 'running') return;
+      if (audio.impactCooldown > 0) return;
+      audio.impactCooldown = 0.22;
+      const ctx = audio.ctx;
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      const intensity = Math.min(1, severity / 7);
+      osc.frequency.setValueAtTime(170 - intensity * 60, now);
+      osc.frequency.exponentialRampToValueAtTime(42, now + 0.17);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.exponentialRampToValueAtTime(0.35 * intensity + 0.06, now + 0.006);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+      osc.connect(gain).connect(audio.master);
+      osc.start(now);
+      osc.stop(now + 0.22);
+      osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+    }
+    function updateSound(dt, forwardSpeed, slip, hasContact) {
+      audio.impactCooldown = Math.max(0, audio.impactCooldown - dt);
+      if (!audio.ctx || !audio.enabled || audio.ctx.state !== 'running') return;
+      const ctx = audio.ctx;
+      const t = ctx.currentTime;
+      const rev = Math.min(1, Math.abs(forwardSpeed) / 25);
+      const throttle = held('gas') ? 1 : held('brake') ? .22 : .08;
+      // Throttle bumps RPM while free-wheeling never falls silent.
+      const hz = 46 + rev * 111 + throttle * 23;
+      audio.engine.frequency.setTargetAtTime(hz, t, .055);
+      audio.bass.frequency.setTargetAtTime(hz / 2, t, .07);
+      audio.engineGain.gain.setTargetAtTime(.12 + rev * .075 + throttle * .08, t, .085);
+      audio.bassGain.gain.setTargetAtTime(.12 + throttle * .035, t, .08);
+      audio.tyreGain.gain.setTargetAtTime(hasContact ? Math.min(.22, slip * .09) : 0, t, .06);
+    }
+    audioButton.addEventListener('click', () => {
+      audio.enabled = !audio.enabled;
+      if (audio.enabled) unlockSound();
+      if (audio.master && audio.ctx) audio.master.gain.setTargetAtTime(audio.enabled ? .20 : 0, audio.ctx.currentTime, .025);
+      setSoundUI();
+    });
+    setSoundUI();
+
     const speedEl = document.getElementById('speed');
     const gearEl = document.getElementById('gear');
     const keyActions = new Set();
@@ -333,6 +461,7 @@
       document.querySelectorAll('[data-control]').forEach(button => button.classList.remove('pressed'));
     }
     window.addEventListener('keydown', event => {
+      if (!event.repeat && (event.code in keyToControl)) unlockSound();
       if (event.code === 'KeyR') { event.preventDefault(); if (!event.repeat) resetCar(); return; }
       if (event.code === 'Digit1') { if (!event.repeat) selectPreset('arcade'); return; }
       if (event.code === 'Digit2') { if (!event.repeat) selectPreset('derby'); return; }
@@ -345,7 +474,12 @@
       if (action) { event.preventDefault(); keyActions.delete(action); }
     });
     window.addEventListener('blur', clearInput);
-    document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        clearInput();
+        if (audio.ctx && audio.ctx.state === 'running') audio.ctx.suspend().catch(() => {});
+      }
+    });
     document.querySelectorAll('[data-control]').forEach(button => {
       const action = button.dataset.control;
       const endPointer = (event) => {
@@ -355,6 +489,7 @@
       };
       button.addEventListener('pointerdown', event => {
         event.preventDefault();
+        unlockSound();
         button.setPointerCapture(event.pointerId);
         pointerActions.set(event.pointerId, action);
         button.classList.add('pressed');
@@ -376,6 +511,120 @@
     let smoothedBrake = 0;
     let reverseEngaged = false;
     let wheelContacts = 0;
+
+    // Draw tire marks with one pooled LineSegments geometry (no per-frame GPU objects).
+    const MAX_SKID_SEGMENTS = 420;
+    const skidPositions = new Float32Array(MAX_SKID_SEGMENTS * 6);
+    const skidGeometry = new THREE.BufferGeometry();
+    skidGeometry.setAttribute('position', new THREE.BufferAttribute(skidPositions, 3).setUsage(THREE.DynamicDrawUsage));
+    skidGeometry.setDrawRange(0, 0);
+    const skidMesh = new THREE.LineSegments(skidGeometry,
+      new THREE.LineBasicMaterial({color:0x363b3e,transparent:true,opacity:0.48,depthWrite:false}));
+    skidMesh.frustumCulled = false;
+    scene.add(skidMesh);
+    let skidWrite = 0, skidCount = 0, skidFrame = 0;
+    const lastSkid = [new THREE.Vector3(), new THREE.Vector3()];
+    const hasLastSkid = [false, false];
+    const wheelWorld = new THREE.Vector3();
+    const rightAxis = new THREE.Vector3();
+    const dustCanvas = document.createElement('canvas');
+    dustCanvas.width = dustCanvas.height = 48;
+    const dustContext = dustCanvas.getContext('2d');
+    const dustGradient = dustContext.createRadialGradient(24,24,2,24,24,24);
+    dustGradient.addColorStop(0,'rgba(210,208,198,0.65)');
+    dustGradient.addColorStop(1,'rgba(210,208,198,0)');
+    dustContext.fillStyle=dustGradient;
+    dustContext.fillRect(0,0,48,48);
+    const dustTexture = new THREE.CanvasTexture(dustCanvas);
+    const dustPuffs = Array.from({length: 18}, () => {
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map:dustTexture,transparent:true,opacity:0,depthWrite:false,
+      }));
+      sprite.visible = false;
+      scene.add(sprite);
+      return {sprite, life:0, age:0, vx:0, vy:0, vz:0};
+    });
+    let dustNext = 0;
+    let rollTarget=0, pitchTarget=0;
+    let slipAmount=0, latestSpeed=0;
+    function rearWheelWorld(i) {
+      const a = wheels[i].anchor;
+      const extension = vehicle.wheelSuspensionLength(i) ?? WHEEL_REST_LENGTH;
+      wheelWorld.set(a.x, a.y - extension - WHEEL_RADIUS, a.z)
+        .applyQuaternion(carQuaternion).add(position);
+      wheelWorld.y = .042;
+      return wheelWorld;
+    }
+    function appendSkidSegment(a,b) {
+      const distanceSq = a.distanceToSquared(b);
+      if (distanceSq > 1.8 || distanceSq < .00001) return;
+      const index = skidWrite * 6;
+      skidPositions.set([a.x,.028,a.z,b.x,.028,b.z],index);
+      skidWrite = (skidWrite+1) % MAX_SKID_SEGMENTS;
+      skidCount = Math.min(MAX_SKID_SEGMENTS, skidCount + 1);
+      skidGeometry.setDrawRange(0, skidCount * 2);
+      skidGeometry.attributes.position.needsUpdate = true;
+    }
+    function spawnDust(location, velocity) {
+      const d = dustPuffs[dustNext];
+      dustNext=(dustNext+1)%dustPuffs.length;
+      d.life=.55;
+      d.age=0;
+      d.vx=velocity.x*.23+(Math.random()-.5)*.9;
+      d.vy=.5+Math.random()*.5;
+      d.vz=velocity.z*.23+(Math.random()-.5)*.9;
+      d.sprite.position.set(location.x,.13,location.z);
+      d.sprite.scale.set(.55,.55,.55);
+      d.sprite.visible=true;
+    }
+    function updateDust(dt) {
+      for (const p of dustPuffs) {
+        if (!p.sprite.visible) continue;
+        p.age += dt;
+        if (p.age>=p.life) {p.sprite.visible=false;continue;}
+        const remain = 1-p.age/p.life;
+        p.sprite.position.x += p.vx*dt;
+        p.sprite.position.y += p.vy*dt;
+        p.sprite.position.z += p.vz*dt;
+        const size=.5+p.age*1.6;
+        p.sprite.scale.set(size,size,size);
+        p.sprite.material.opacity=.34*remain*remain;
+      }
+    }
+    function updateSkids() {
+      skidFrame++;
+      if (skidFrame%2!==0) return;
+      const active = wheelContacts>1 && latestSpeed>4 && slipAmount>.17;
+      const currentVel = carBody.linvel();
+      for (let j=0;j<2;j++) {
+        const i = j+2;
+        if (!active || !vehicle.wheelIsInContact(i)) {hasLastSkid[j]=false;continue;}
+        const point = rearWheelWorld(i);
+        if (hasLastSkid[j]) appendSkidSegment(lastSkid[j],point);
+        lastSkid[j].copy(point);
+        hasLastSkid[j]=true;
+        if (skidFrame%4===0) spawnDust(point,currentVel);
+      }
+    }
+    function resetEffects() {
+      rollTarget=pitchTarget=slipAmount=latestSpeed=0;
+      visualBody.rotation.set(0,0,0);
+      skidPositions.fill(0);
+      skidWrite=0;skidCount=0;skidFrame=0;
+      skidGeometry.setDrawRange(0,0);
+      skidGeometry.attributes.position.needsUpdate=true;
+      hasLastSkid.fill(false);
+      for(const p of dustPuffs){p.sprite.visible=false;p.age=0;}
+      if (audio.ctx && audio.ctx.state==='running') {
+        audio.tyreGain.gain.setTargetAtTime(0,audio.ctx.currentTime,.02);
+      }
+    }
+    function updateVisualBody(dt) {
+      const k = 1-Math.exp(-8.5*dt);
+      visualBody.rotation.z += (rollTarget-visualBody.rotation.z)*k;
+      visualBody.rotation.x += (pitchTarget-visualBody.rotation.x)*k;
+      updateDust(dt);
+    }
 
     function syncBodies() {
       const t = carBody.translation();
@@ -426,6 +675,7 @@
         vehicle.setWheelSteering(i,0);
       }
       steering=0;
+      resetEffects();
       smoothedBrake=0;
       reverseEngaged=false;
       carBody.wakeUp();
@@ -449,6 +699,7 @@
       const vel=carBody.linvel();
       const fwdSpeed=vel.x*forward.x+vel.z*forward.z;
       const horizontalSpeed=Math.hypot(vel.x,vel.z);
+      const oldVelX=vel.x,oldVelY=vel.y,oldVelZ=vel.z;
       let engine=0, footBrake=0;
       reverseEngaged=false;
       // Automatic reverse: S first brakes, then reverses at walking speed.
@@ -522,6 +773,25 @@
       }
       world.step();
       syncBodies();
+      const after=carBody.linvel();
+      const dvX=after.x-oldVelX, dvY=after.y-oldVelY, dvZ=after.z-oldVelZ;
+      const impulseSpeed=Math.hypot(dvX,dvY,dvZ);
+      if (impulseSpeed>1.35 && horizontalSpeed>2.5) playImpact(impulseSpeed);
+      rightAxis.set(1,0,0).applyQuaternion(carQuaternion);
+      rightAxis.y=0;
+      if (rightAxis.lengthSq()>.01) rightAxis.normalize();
+      const lateralSpeed=after.x*rightAxis.x+after.z*rightAxis.z;
+      const sideAccel=(dvX*rightAxis.x+dvZ*rightAxis.z)/dt;
+      const longAccel=(dvX*forward.x+dvZ*forward.z)/dt;
+      const currentSpeed=Math.hypot(after.x,after.z);
+      latestSpeed=currentSpeed;
+      slipAmount=wheelContacts>1 ? Math.min(1.5, Math.abs(lateralSpeed)/Math.max(2,currentSpeed)*3.3 +
+        (hb && currentSpeed>5 ? .52 : 0)) : 0;
+      // Fake lean affects only the visible body; Rapier chassis and wheels do not tilt.
+      rollTarget=THREE.MathUtils.clamp(steering*Math.min(1,currentSpeed/11)*.045 + sideAccel*.003, -.095, .095);
+      pitchTarget=THREE.MathUtils.clamp((brake ? .038 : gas ? -.025 : 0)-longAccel*.003, -.072, .085);
+      updateSkids();
+      updateSound(dt,after.x*forward.x+after.z*forward.z,slipAmount,wheelContacts>1);
       if (carBody.translation().y < -5) resetCar();
     }
 
@@ -550,6 +820,7 @@
         updates++;
       }
       if (updates === 4) accumulator = 0;
+      updateVisualBody(delta);
       cameraDesired.set(position.x - forward.x * 12.5, position.y + 7.5, position.z - forward.z * 12.5);
       camera.position.lerp(cameraDesired, 1 - Math.exp(-4.8 * delta));
       cameraTarget.set(position.x + forward.x * 3.5, position.y + .4, position.z + forward.z * 3.5);
@@ -564,7 +835,7 @@
     frame();
   } catch (error) {
     console.error('Wreck Circuit startup failed:', error);
-    showError('Не удалось запустить 3D-сцену v0.4.2: ' + (error?.message || String(error)));
+    showError('Не удалось запустить 3D-сцену v0.5: ' + (error?.message || String(error)));
   }
 </script>
 </body>
