@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v0.9 — повреждения от реальных столкновений">
-  <title>Wreck Circuit — Collision Damage Lab v0.9</title>
+  <meta name="description" content="Wreck Circuit v1.0 — Caprice 80s Sedan">
+  <title>Wreck Circuit — Caprice 80s v1.0</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -98,7 +98,7 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.9</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v1.0</span></div>
     <div class="hud-actions">
       <button id="inspect-toggle" class="restart" type="button" aria-pressed="false" aria-label="Переключить камеру осмотра">👁 Осмотр</button>
       <button id="audio-toggle" class="restart audio-toggle" type="button" aria-pressed="true" aria-label="Выключить звук">🔊 Звук</button>
@@ -224,254 +224,281 @@
     const visualBody = new THREE.Group();
     car.add(visualBody);
 
-    // v0.6 — modular 1980s stock-car sedan, entirely generated in code.
-    // Important: this is a VISUAL replacement ONLY. The Rapier chassis,
-    // center of mass, wheel anchors, vehicle tuning and input are unchanged.
-    // Local +Z is FRONT. Every major body panel is a separate named Mesh.
-    // Its rest vertex positions are stored for the upcoming damage system.
-    const bodyParts = new Map();
-    const paint = new THREE.MeshStandardMaterial({color:0xdba13d, metalness:.13, roughness:.60, side:THREE.DoubleSide});
-    const paintLight = new THREE.MeshStandardMaterial({color:0xf0be62, metalness:.15, roughness:.54, side:THREE.DoubleSide});
-    const paintShade = new THREE.MeshStandardMaterial({color:0xa97529, metalness:.08, roughness:.75, side:THREE.DoubleSide});
-    const windowGlass = new THREE.MeshStandardMaterial({color:0x354b5a, metalness:.10, roughness:.26, side:THREE.DoubleSide});
-    const windowTrim = material(0x242b2f);
-    const chrome = new THREE.MeshStandardMaterial({color:0xb3b9b4, metalness:.62, roughness:.32});
-    const frontMetal = material(0x414348);
-    const sillMaterial = material(0x504b41);
-    const cream = new THREE.MeshBasicMaterial({color:0xffebae});
-    const rearLens = new THREE.MeshBasicMaterial({color:0xb7372b});
+    // v1.0: Full-size 1980s American sedan, Caprice-inspired silhouette.
+    // Local +Z = FRONT. The full-length 5.35 m body is centered around Z=0.
+    // All major components remain individually addressable for GTA-style damage.
+    // visualBody is lowered relative to the chassis: a low greenhouse, not an SUV.
+    visualBody.position.y=-.50;
+    const bodyParts=new Map();
+    const paint=new THREE.MeshStandardMaterial({color:0xb8a17a,metalness:.23,roughness:.48,side:THREE.DoubleSide});
+    const paintLight=new THREE.MeshStandardMaterial({color:0xc7b38f,metalness:.21,roughness:.44,side:THREE.DoubleSide});
+    const paintShade=new THREE.MeshStandardMaterial({color:0x897354,metalness:.19,roughness:.57,side:THREE.DoubleSide});
+    const windowGlass=new THREE.MeshStandardMaterial({color:0x263b48,metalness:.20,roughness:.21,side:THREE.DoubleSide});
+    const windowTrim=material(0x1a2023);
+    const chrome=new THREE.MeshStandardMaterial({color:0xc5cac6,metalness:.75,roughness:.22});
+    const polishedChrome=new THREE.MeshStandardMaterial({color:0xe0e0d8,metalness:.72,roughness:.18});
+    const grilleMat=new THREE.MeshStandardMaterial({color:0x2d3437,metalness:.30,roughness:.43});
+    const sillMaterial=material(0x383a38);
+    const cream=new THREE.MeshBasicMaterial({color:0xe8e9d8});
+    const amber=new THREE.MeshBasicMaterial({color:0xc67c29});
+    const rearLens=new THREE.MeshBasicMaterial({color:0xab2a20});
+    const reverseLens=new THREE.MeshBasicMaterial({color:0xcdd4cc});
+    const rubberTrim=material(0x252729);
+    const frontMetal=grilleMat;
 
-    function tagPart(mesh, name, detachable=false) {
-      mesh.name = `sedan_${name}`;
-      mesh.userData.damagePart = name;
-      mesh.userData.detachable = detachable;
-      const positionAttribute = mesh.geometry?.getAttribute('position');
-      if (positionAttribute) mesh.userData.restPositions = new Float32Array(positionAttribute.array);
-      bodyParts.set(name, mesh);
+    function tagPart(mesh,name,detachable=false){
+      mesh.name=`caprice_${name}`;
+      mesh.userData.damagePart=name;
+      mesh.userData.detachable=detachable;
+      const pos=mesh.geometry?.getAttribute('position');
+      if(pos) mesh.userData.restPositions=new Float32Array(pos.array);
+      bodyParts.set(name,mesh);
       return mesh;
     }
-    function solidPart(parent,name,w,h,d,mat,x,y,z,detachable=false) {
-      const mesh = block(parent,w,h,d,mat,x,y,z);
-      tagPart(mesh,name,detachable);
-      return mesh;
+    function solidPart(parent,name,w,h,d,mat,x,y,z,detachable=false){
+      const mesh=block(parent,w,h,d,mat,x,y,z);
+      return tagPart(mesh,name,detachable);
     }
-    // Low-poly surface grid: shared vertices permit future local dents.
-    // Parameter order: u along width/Z, v along length/Y depending on panel.
-    function surfacePart(parent,name,uSteps,vSteps,sample,mat,detachable=false) {
-      const coordinates=[];
-      const indices=[];
-      for(let v=0;v<=vSteps;v++) for(let u=0;u<=uSteps;u++) {
+    // Parameterized surface with a deformable, indexed vertex grid.
+    // Body panels have separate vertices and update only when damaged.
+    function surfacePart(parent,name,uSteps,vSteps,sample,mat,detachable=false){
+      const coordinates=[],indices=[];
+      for(let v=0;v<=vSteps;v++) for(let u=0;u<=uSteps;u++){
         const p=sample(u/uSteps,v/vSteps);
         coordinates.push(p[0],p[1],p[2]);
       }
-      for(let v=0;v<vSteps;v++) for(let u=0;u<uSteps;u++) {
-        const a=v*(uSteps+1)+u, b=a+1, c=a+uSteps+1, d=c+1;
+      for(let v=0;v<vSteps;v++) for(let u=0;u<uSteps;u++){
+        const a=v*(uSteps+1)+u,b=a+1,c=a+uSteps+1,d=c+1;
         indices.push(a,c,b,b,c,d);
       }
       const g=new THREE.BufferGeometry();
       g.setAttribute('position',new THREE.Float32BufferAttribute(coordinates,3));
       g.setIndex(indices);
       g.computeVertexNormals();
-      const mesh=new THREE.Mesh(g,mat);
-      parent.add(mesh);
+      const mesh=new THREE.Mesh(g,mat);parent.add(mesh);
       return tagPart(mesh,name,detachable);
     }
-    function polygonPart(parent,name,points,mat) {
+    function polygonPart(parent,name,points,mat){
+      const coords=[],indices=[];
+      for(const p of points)coords.push(...p);
+      for(let i=1;i<points.length-1;i++)indices.push(0,i,i+1);
       const g=new THREE.BufferGeometry();
-      const vertices=[];
-      for(const p of points) vertices.push(...p);
-      const idx=[];
-      for(let i=1;i<points.length-1;i++) idx.push(0,i,i+1);
-      g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
-      g.setIndex(idx);
-      g.computeVertexNormals();
-      const mesh=new THREE.Mesh(g,mat);
-      parent.add(mesh);
+      g.setAttribute('position',new THREE.Float32BufferAttribute(coords,3));
+      g.setIndex(indices);g.computeVertexNormals();
+      const mesh=new THREE.Mesh(g,mat);parent.add(mesh);
       return tagPart(mesh,name);
     }
-    // Beams are cylinders; used for window pillars, trim and wheel-arch lips.
-    function edge(parent,p1,p2,radius,mat) {
+    // Tubular trim with genuine 3D reflections (no texture files).
+    function edge(parent,p1,p2,radius,mat){
       const a=new THREE.Vector3(...p1),b=new THREE.Vector3(...p2);
       const dir=b.clone().sub(a),len=dir.length();
+      if(len<.0001)return null;
       const mesh=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,len,6),mat);
       mesh.position.copy(a).add(b).multiplyScalar(.5);
       mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.normalize());
-      parent.add(mesh);
-      return mesh;
+      parent.add(mesh);return mesh;
     }
-    // Dark underbody is narrower than the side panels, exposing the wheel openings.
-    solidPart(visualBody,'underframe',1.46,.23,4.05,sillMaterial,0,-.20,0);
-    solidPart(visualBody,'rocker_left',.12,.18,1.33,paintShade,-.84,-.13,-.05);
-    solidPart(visualBody,'rocker_right',.12,.18,1.33,paintShade,.84,-.13,-.05);
 
+    // Undertray does not block the wheel openings. A slim sill visually
+    // connects the cabin between the front/rear arches.
+    solidPart(visualBody,'underframe',1.62,.22,4.92,sillMaterial,0,-.29,0);
+    for(const side of [-1,1]){
+      const name=side<0?'left':'right';
+      solidPart(visualBody,`${name}_rocker`,.11,.10,2.00,paintShade,side*.89,-.32,.03);
+    }
+    // 5.35m long, 1.94m wide, about 2.94m wheelbase. The hood and deck
+    // are longer and lower than v0.9. Thin fenders lean subtly inward.
+    const BODY_HALF_WIDTH=.985;
+    const FRONT_WHEEL_Z=1.48,REAR_WHEEL_Z=-1.48;
+    const BODY_HALF_LENGTH=2.67;
     const bodySections=[
-      ['rear_fender',-2.14,-.76],
-      ['rear_door',-.76,-.12],
-      ['front_door',-.12,.76],
-      ['front_fender',.76,2.14],
+      ['rear_fender',-2.55,-.97],
+      ['rear_door',-.97,-.17],
+      ['front_door',-.17,.99],
+      ['front_fender',.99,2.55],
     ];
-    // Wheel-arch bottom edge: raised around the front and rear tires.
-    function lowerEdge(z) {
-      let h=-.23;
-      for(const center of [-1.36,1.36]) {
-        const dz=z-center,r=.57;
-        if(Math.abs(dz)<r) h=Math.max(h,-.38+Math.sqrt(r*r-dz*dz));
+    function archLower(z){
+      let h=-.39;
+      for(const center of [REAR_WHEEL_Z,FRONT_WHEEL_Z]){
+        const dz=z-center,r=.59;
+        if(Math.abs(dz)<r)h=Math.max(h,-.39+.82*Math.sqrt(1-(dz*dz)/(r*r)));
       }
       return h;
     }
-    for(const side of [-1,1]) {
+    for(const side of [-1,1]){
       const name=side<0?'left':'right';
-      for(const [part,z0,z1] of bodySections) {
-        surfacePart(visualBody,`${name}_${part}`,18,3,(u,v)=>{
+      for(const [part,z0,z1] of bodySections){
+        surfacePart(visualBody,`${name}_${part}`,24,5,(u,v)=>{
           const z=z0+(z1-z0)*u;
-          const y=lowerEdge(z)+(.405-lowerEdge(z))*v;
-          const x=side*(.942-.021*v + .009*Math.sin((z+2.14)/4.28*Math.PI));
-          return [x,y,z];
+          const y0=archLower(z),y=y0+(.49-y0)*v;
+          // Subtle sculpted shoulder and inward taper = real metal, not cube.
+          const shoulder=.013*Math.sin(v*Math.PI)+.018*Math.exp(-Math.pow((v-.83)*7,2));
+          const x=side*(BODY_HALF_WIDTH-.085*v+shoulder-.012*Math.abs(z)/2.7);
+          return[x,y,z];
         },part.includes('door')?paint:paintLight);
       }
-      // Actual wheel-well arch trim, drawn over the open cutout.
-      for(const centerZ of [-1.36,1.36]) {
+      // Wheel arch beads, swept around circular cut-outs.
+      for(const center of [REAR_WHEEL_Z,FRONT_WHEEL_Z]){
         let prev=null;
-        for(let i=0;i<=12;i++) {
-          const a=i*Math.PI/12;
-          const z=centerZ-.57*Math.cos(a);
-          const y=-.38+.57*Math.sin(a);
-          const p=[side*.965,y,z];
-          if(prev) edge(visualBody,prev,p,.014,windowTrim);
+        for(let i=0;i<=24;i++){
+          const t=i*Math.PI/24;
+          const z=center-.59*Math.cos(t),y=-.39+.82*Math.sin(t);
+          const p=[side*.989,y,z];
+          if(prev)edge(visualBody,prev,p,.011,chrome);
           prev=p;
         }
       }
-      // Door seams and handles; visually distinct doors will deform independently.
-      for(const z of [-.76,-.12,.76]) {
-        edge(visualBody,[side*.963,-.19,z],[side*.950,.413,z],.010,windowTrim);
+      // Caprice's characteristic full-length bright trim and waist crease.
+      edge(visualBody,[side*.966,.46,-2.53],[side*.966,.46,2.54],.014,paintShade);
+      edge(visualBody,[side*.996,-.12,-2.50],[side*.996,-.12,2.53],.012,chrome);
+      edge(visualBody,[side*.965,-.16,-2.49],[side*.965,-.16,2.50],.017,rubberTrim);
+      // Four doors with longer front doors and restrained vertical seams.
+      for(const z of [-.97,-.17,.99]){
+        edge(visualBody,[side*.97,-.27,z],[side*.916,.49,z],.010,rubberTrim);
       }
-      edge(visualBody,[side*.960,.408,-2.10],[side*.960,.408,2.10],.012,paintShade);
-      for(const z of [-.46,.45]) {
-        solidPart(visualBody,`${name}_door_handle_${z>0?'front':'rear'}`,.055,.038,.18,chrome,side*.984,.285,z);
-        solidPart(visualBody,`${name}_handle_recess_${z>0?'front':'rear'}`,.018,.065,.235,frontMetal,side*.95,.278,z-.012);
+      for(const [id,z] of [['front',.59],['rear',-.58]]){
+        solidPart(visualBody,`${name}_handle_${id}`,.065,.039,.20,polishedChrome,side*1.009,.30,z);
+        solidPart(visualBody,`${name}_recess_${id}`,.019,.055,.235,grilleMat,side*.975,.29,z);
       }
-      // Mirror unit attached to the cabin, not to a moving wheel.
-      solidPart(visualBody,`${name}_mirror_base`,.22,.09,.12,frontMetal,side*1.00,.58,.75);
-      solidPart(visualBody,`${name}_mirror`,.23,.14,.16,paint,side*1.13,.62,.76);
+      // Small squared chrome mirror on a black foot, adjacent to A pillar.
+      solidPart(visualBody,`${name}_mirror_foot`,.16,.10,.13,rubberTrim,side*.94,.56,.90);
+      solidPart(visualBody,`${name}_mirror`,.24,.17,.20,paint,side*1.06,.67,.91);
+      solidPart(visualBody,`${name}_mirror_glass`,.012,.12,.145,chrome,side*1.19,.67,.91);
     }
 
-    // Bonnet / boot panels use a segmented grid, not a single stretched box.
-    surfacePart(visualBody,'hood',8,12,(u,v)=>{
-      const x=(u-.5)*1.49, z=.77+v*1.34;
-      const y=.50-.095*v+.026*(1-(x/.85)**2);
-      return [x,y,z];
+    // Long, almost level hood and trunk, with raised outer fender rails.
+    surfacePart(visualBody,'hood',14,18,(u,v)=>{
+      const x=(u-.5)*1.62,z=.99+v*1.55;
+      const crown=.018*(1-Math.pow(x/.85,2));
+      return[x,.516-.052*v+crown+.010*Math.cos(x*5.5),z];
     },paint,true);
-    surfacePart(visualBody,'trunk',8,8,(u,v)=>{
-      const x=(u-.5)*1.58, z=-2.12+v*.91;
-      const y=.45+.028*Math.sin(v*Math.PI)+.014*(1-(x/.84)**2);
-      return [x,y,z];
+    surfacePart(visualBody,'trunk',14,12,(u,v)=>{
+      const x=(u-.5)*1.68,z=-2.54+v*.96;
+      return[x,.488+.012*Math.sin(Math.PI*v)+.012*(1-(x/.9)**2),z];
     },paint,true);
-    // Outer strips over each front fender meet the hood at a fine dark seam.
-    for(const side of [-1,1]) {
+    for(const side of [-1,1]){
       const name=side<0?'left':'right';
-      surfacePart(visualBody,`${name}_fender_top`,3,12,(u,v)=>{
-        const x=side*(.75+u*.18),z=.77+v*1.34;
-        return [x,.482-.10*v-.027*u,z];
+      surfacePart(visualBody,`${name}_fender_top`,4,18,(u,v)=>{
+        const x=side*(.80+u*.16),z=.99+v*1.55;
+        return[x,.520-.053*v-.012*u,z];
       },paintLight);
-      edge(visualBody,[side*.76,.50,.78],[side*.76,.405,2.11],.012,paintShade);
-    }
-    // The rear deck has separate quarter strips for future damage.
-    for(const side of [-1,1]) {
-      const name=side<0?'left':'right';
-      surfacePart(visualBody,`${name}_rear_deck`,2,8,(u,v)=>{
-        const x=side*(.79+u*.15),z=-2.12+v*.91;
-        return [x,.438+.016*Math.sin(Math.PI*v)-.022*u,z];
+      edge(visualBody,[side*.814,.52,1.0],[side*.814,.464,2.54],.011,paintShade);
+      surfacePart(visualBody,`${name}_rear_deck`,4,12,(u,v)=>{
+        const x=side*(.83+u*.14),z=-2.54+v*.96;
+        return[x,.492+.010*Math.sin(Math.PI*v)-.016*u,z];
       },paintLight);
+      edge(visualBody,[side*.84,.49,-2.53],[side*.84,.49,-1.58],.009,paintShade);
     }
 
-    // Cabin: four framed side windows, windshield, rear glass and roof.
+    // Cabin / greenhouse: a long, lower roof with a rearward-sweeping C-pillar.
+    // Thin black seals, chrome window surrounds, solid body-color roof.
+    const roofFront=.56,roofRear=-1.08,roofHeight=1.045;
     polygonPart(visualBody,'windshield',[
-      [-.81,.50,.87],[.81,.50,.87],[.67,1.03,.47],[-.67,1.03,.47],
+      [-.81,.53,1.005],[.81,.53,1.005],[.735,1.022,roofFront],[-.735,1.022,roofFront],
     ],windowGlass);
     polygonPart(visualBody,'rear_window',[
-      [.82,.49,-1.23],[-.82,.49,-1.23],[-.67,1.04,-.71],[.67,1.04,-.71],
+      [.80,.53,-1.59],[-.80,.53,-1.59],[-.732,1.022,roofRear],[.732,1.022,roofRear],
     ],windowGlass);
-    surfacePart(visualBody,'roof',6,6,(u,v)=>{
-      const x=(u-.5)*1.37,z=-.72+v*1.20;
-      return [x,1.05+.036*(1-(x/.71)**2),z];
+    surfacePart(visualBody,'roof',10,10,(u,v)=>{
+      const x=(u-.5)*1.49,z=roofRear+v*(roofFront-roofRear);
+      return[x,roofHeight+.027*(1-(x/.76)**2)-.009*Math.pow(2*v-1,2),z];
     },paintLight);
-    const windshieldTop=[-.67,1.05,.47], windshieldTopR=[.67,1.05,.47];
-    const windshieldBase=[-.81,.50,.87],windshieldBaseR=[.81,.50,.87];
     for(const [a,b] of [
-      [windshieldTop,windshieldBase],[windshieldTopR,windshieldBaseR],
-      [windshieldTop,windshieldTopR],[windshieldBase,windshieldBaseR],
-      [[-.67,1.05,-.71],[-.82,.49,-1.23]],
-      [[.67,1.05,-.71],[.82,.49,-1.23]],
-      [[-.67,1.05,-.71],[.67,1.05,-.71]],
-    ]) edge(visualBody,a,b,.018,windowTrim);
-
-    for(const side of [-1,1]) {
+      [[-.735,1.04,.56],[-.81,.53,1.005]],[[.735,1.04,.56],[.81,.53,1.005]],
+      [[-.735,1.04,.56],[.735,1.04,.56]],
+      [[-.81,.53,1.005],[.81,.53,1.005]],
+      [[-.732,1.04,-1.08],[-.80,.53,-1.59]],[[.732,1.04,-1.08],[.80,.53,-1.59]],
+      [[-.732,1.04,-1.08],[.732,1.04,-1.08]],
+      [[-.80,.53,-1.59],[.80,.53,-1.59]],
+    ])edge(visualBody,a,b,.012,chrome);
+    for(const side of [-1,1]){
       const name=side<0?'left':'right';
-      const xBottom=side*.83, xTop=side*.69;
+      const base=side*.88,top=side*.75;
       const frontWindow=[
-        [xBottom,.52,.73],[xBottom,.52,-.10],
-        [xTop,1.035,-.13],[xTop,1.035,.46],
+        [base,.56,.91],[base,.56,-.17],[top,1.035,-.19],[top,1.035,.54],
       ];
       const rearWindow=[
-        [xBottom,.52,-.12],[xBottom,.52,-1.10],
-        [xTop,1.035,-.68],[xTop,1.035,-.15],
+        [base,.56,-.19],[base,.56,-1.42],[top,1.035,-1.04],[top,1.035,-.21],
       ];
       polygonPart(visualBody,`${name}_front_glass`,frontWindow,windowGlass);
       polygonPart(visualBody,`${name}_rear_glass`,rearWindow,windowGlass);
-      for(const points of [frontWindow,rearWindow]) for(let i=0;i<points.length;i++) {
-        edge(visualBody,points[i],points[(i+1)%points.length],.018,windowTrim);
+      for(const points of [frontWindow,rearWindow])for(let i=0;i<points.length;i++){
+        edge(visualBody,points[i],points[(i+1)%points.length],.012,chrome);
       }
-      // B-pillar and metal strip separating glass from doors.
-      edge(visualBody,[side*.84,.45,-.12],[side*.70,1.06,-.14],.044,paintShade);
-      edge(visualBody,[side*.85,.48,-1.11],[side*.69,1.06,-.70],.042,paint);
-      edge(visualBody,[side*.85,.48,.76],[side*.69,1.06,.46],.040,paint);
+      edge(visualBody,[side*.885,.54,-.18],[side*.755,1.048,-.20],.033,paintShade);
+      edge(visualBody,[side*.887,.54,-1.44],[side*.752,1.047,-1.08],.050,paint);
+      edge(visualBody,[side*.885,.54,.95],[side*.753,1.047,.56],.035,paint);
+      edge(visualBody,[side*.885,.51,-1.45],[side*.885,.51,.96],.015,chrome);
+      // A slight lip along the roof gutter carries the classic full-size look.
+      edge(visualBody,[side*.758,1.046,-1.10],[side*.758,1.046,.57],.016,chrome);
     }
 
-    // Black cavities remain visible after the hood or boot lid breaks free.
-    const bayMaterial=new THREE.MeshLambertMaterial({color:0x242a30,side:THREE.DoubleSide});
-    const engineMaterial=new THREE.MeshLambertMaterial({color:0x5b6061});
-    block(visualBody,1.48,.030,1.32,bayMaterial,0,.315,1.44);
-    block(visualBody,1.32,.14,.76,engineMaterial,0,.35,1.43);
-    block(visualBody,.72,.08,.55,frontMetal,0,.455,1.50);
-    block(visualBody,1.52,.035,.86,bayMaterial,0,.315,-1.66);
-    // Front and rear fascia are detachable, with individual head- and tail-lamps.
-    solidPart(visualBody,'front_fascia',1.94,.32,.13,paintShade,0,.21,2.15,true);
-    solidPart(visualBody,'grille',1.12,.23,.035,frontMetal,0,.25,2.231,true);
-    for(const side of [-1,1]) {
+    // Dark bays become visible as soon as bonnet or bootlid is detached.
+    const bayMaterial=new THREE.MeshLambertMaterial({color:0x23282b,side:THREE.DoubleSide});
+    const engineMaterial=new THREE.MeshLambertMaterial({color:0x666c6c});
+    block(visualBody,1.52,.04,1.53,bayMaterial,0,.37,1.78);
+    block(visualBody,1.02,.13,.80,engineMaterial,0,.39,1.68);
+    block(visualBody,.70,.10,.63,grilleMat,0,.48,1.65);
+    block(visualBody,.36,.15,.32,sillMaterial,-.45,.48,1.91);
+    block(visualBody,1.55,.035,.89,bayMaterial,0,.37,-2.06);
+
+    // Wide 1980s four-lamp face: two sealed-beam units on each side, with
+    // a vertically slatted radiator grille, chrome framing, and amber corners.
+    solidPart(visualBody,'front_fascia',1.94,.33,.11,paintShade,0,.25,2.592,true);
+    solidPart(visualBody,'grille',1.00,.25,.045,grilleMat,0,.26,2.654,true);
+    for(let i=0;i<14;i++){
+      const x=-.46+i*(.92/13);
+      block(visualBody,.012,.205,.048,polishedChrome,x,.26,2.685);
+    }
+    edge(visualBody,[-.51,.40,2.673],[.51,.40,2.673],.009,chrome);
+    edge(visualBody,[-.51,.12,2.673],[.51,.12,2.673],.009,chrome);
+    for(const side of [-1,1]){
       const name=side<0?'left':'right';
-      solidPart(visualBody,`${name}_headlight`,.36,.18,.046,cream,side*.76,.32,2.238);
-      solidPart(visualBody,`${name}_tail_light`,.45,.17,.055,rearLens,side*.69,.30,-2.238);
+      for(let i=0;i<2;i++){
+        const x=side*(.61+i*.225);
+        solidPart(visualBody,`${name}_headlamp_${i}`,.202,.18,.025,cream,x,.28,2.672);
+        // Sealed-beam chrome perimeter and dark socket.
+        block(visualBody,.208,.015,.036,chrome,x,.382,2.686);
+        block(visualBody,.208,.015,.036,chrome,x,.178,2.686);
+      }
+      solidPart(visualBody,`${name}_turnsignal`,.13,.13,.028,amber,side*.941,.27,2.660);
     }
-    solidPart(visualBody,'rear_fascia',1.94,.35,.13,paintShade,0,.20,-2.15,true);
-    solidPart(visualBody,'front_bumper',2.12,.16,.19,chrome,0,-.14,2.24,true);
-    solidPart(visualBody,'rear_bumper',2.12,.16,.19,chrome,0,-.14,-2.24,true);
-    solidPart(visualBody,'front_air_intake',.95,.085,.042,frontMetal,0,.02,2.254);
-    solidPart(visualBody,'rear_plate',.50,.13,.038,cream,0,.26,-2.238);
+    const frontBumper=solidPart(visualBody,'front_bumper',2.06,.14,.20,chrome,0,-.11,2.699,true);
+    block(frontBumper,1.55,.05,.040,rubberTrim,0,.02,.115);
+    block(frontBumper,.38,.125,.025,cream,0,.04,.116);
 
-    // 2D numbers are generated at runtime with Canvas; no image downloads.
-    function makeNumberTexture() {
-      const canvas=document.createElement('canvas');
-      canvas.width=canvas.height=128;
+    // Square rear panel, wide rectangular tail lights and bright trunk trim.
+    solidPart(visualBody,'rear_fascia',1.94,.32,.12,paintShade,0,.25,-2.590,true);
+    for(const side of [-1,1]){
+      const name=side<0?'left':'right';
+      solidPart(visualBody,`${name}_taillamp`,.72,.19,.040,rearLens,side*.56,.28,-2.669);
+      solidPart(visualBody,`${name}_reverse_light`,.18,.14,.048,reverseLens,side*.39,.27,-2.696);
+      edge(visualBody,[side*.18,.39,-2.695],[side*.94,.39,-2.695],.010,chrome);
+    }
+    solidPart(visualBody,'rear_plate',.42,.18,.04,cream,0,.27,-2.667);
+    const rearBumper=solidPart(visualBody,'rear_bumper',2.06,.14,.20,chrome,0,-.10,-2.698,true);
+    block(rearBumper,1.56,.05,.040,rubberTrim,0,.02,-.113);
+    // Simple license/number texture, generated locally and not loaded from CDN.
+    function makeNumberTexture(){
+      const canvas=document.createElement('canvas');canvas.width=canvas.height=128;
       const c=canvas.getContext('2d');
-      c.fillStyle='#eee7d4';c.fillRect(0,0,128,128);
-      c.strokeStyle='#282b2a';c.lineWidth=9;c.strokeRect(4,4,120,120);
+      c.fillStyle='#f3eddb';c.fillRect(0,0,128,128);
+      c.strokeStyle='#24292c';c.lineWidth=8;c.strokeRect(4,4,120,120);
       c.textAlign='center';c.textBaseline='middle';
-      c.fillStyle='#252a2c';c.font='900 80px Arial,sans-serif';
-      c.fillText('27',64,68);
-      const tex=new THREE.CanvasTexture(canvas);
-      tex.colorSpace=THREE.SRGBColorSpace;
+      c.fillStyle='#252a2e';c.font='900 83px Arial,sans-serif';c.fillText('27',64,69);
+      const tex=new THREE.CanvasTexture(canvas);tex.colorSpace=THREE.SRGBColorSpace;
       return tex;
     }
     const numberMaterial=new THREE.MeshBasicMaterial({map:makeNumberTexture(),side:THREE.DoubleSide});
-    for(const side of [-1,1]) {
-      const decal=new THREE.Mesh(new THREE.PlaneGeometry(.44,.43),numberMaterial);
+    for(const side of [-1,1]){
+      const decal=new THREE.Mesh(new THREE.PlaneGeometry(.42,.40),numberMaterial);
       decal.rotation.y=side*Math.PI/2;
-      decal.position.set(side*.970,.16,.36);
+      decal.position.set(side*1.014,.14,.46);
       visualBody.add(decal);
     }
-    const roofNumber=new THREE.Mesh(new THREE.PlaneGeometry(.54,.55),numberMaterial);
+    const roofNumber=new THREE.Mesh(new THREE.PlaneGeometry(.53,.53),numberMaterial);
     roofNumber.rotation.x=-Math.PI/2;
-    roofNumber.position.set(0,1.092,-.13);
+    roofNumber.position.set(0,1.080,-.29);
     visualBody.add(roofNumber);
     // Body parts are individually addressable (hood, doors, fenders, bumpers).
     // v0.9: scripted dents plus real Rapier collision-triggered damage.
@@ -503,24 +530,24 @@
     // point INWARD, never through the exterior surface away from the car.
     const TEST_DENTS={
       front:[
-        ['hood',[-.08,.46,1.60],[0,-1,-.1],.84,.17,.37],
-        ['left_fender_top',[-.83,.44,1.60],[0,-1,-.1],.66,.075,.20],
-        ['right_fender_top',[.83,.44,1.60],[0,-1,-.1],.66,.075,.20],
+        ['hood',[-.08,.49,1.95],[0,-1,-.12],.92,.15,.39],
+        ['left_fender_top',[-.87,.48,1.95],[0,-1,-.10],.75,.085,.25],
+        ['right_fender_top',[.87,.48,1.95],[0,-1,-.10],.75,.085,.25],
       ],
       rear:[
-        ['trunk',[.08,.46,-1.69],[0,-1,.1],.77,.17,.37],
-        ['left_rear_deck',[-.84,.43,-1.62],[0,-1,.1],.65,.065,.19],
-        ['right_rear_deck',[.84,.43,-1.62],[0,-1,.1],.65,.065,.19],
+        ['trunk',[.08,.49,-2.05],[0,-1,.12],.84,.17,.41],
+        ['left_rear_deck',[-.89,.47,-2.03],[0,-1,.10],.72,.075,.23],
+        ['right_rear_deck',[.89,.47,-2.03],[0,-1,.10],.72,.075,.23],
       ],
       left:[
-        ['left_front_door',[-.95,.22,.35],[1,0,0],.80,.18,.38],
-        ['left_rear_door',[-.95,.19,-.42],[1,0,0],.70,.11,.28],
-        ['left_front_fender',[-.95,.14,1.10],[1,0,0],.60,.06,.20],
+        ['left_front_door',[-.95,.15,.38],[1,0,0],.86,.18,.40],
+        ['left_rear_door',[-.95,.15,-.55],[1,0,0],.73,.14,.35],
+        ['left_front_fender',[-.95,.16,1.89],[1,0,0],.73,.08,.25],
       ],
       right:[
-        ['right_front_door',[.95,.22,.35],[-1,0,0],.80,.18,.38],
-        ['right_rear_door',[.95,.19,-.42],[-1,0,0],.70,.11,.28],
-        ['right_front_fender',[.95,.14,1.10],[-1,0,0],.60,.06,.20],
+        ['right_front_door',[.95,.15,.38],[-1,0,0],.86,.18,.40],
+        ['right_rear_door',[.95,.15,-.55],[-1,0,0],.73,.14,.35],
+        ['right_front_fender',[.95,.16,1.89],[-1,0,0],.73,.08,.25],
       ],
     };
     const damageCounter=document.getElementById('damage-counter');
@@ -641,7 +668,7 @@
     // Inertias (kg m^2): X = pitch, Y = yaw, Z = roll.
     const CAR_MASS = 1040;
     const CENTER_OF_MASS_Y = -0.38;
-    const chassisCollider=world.createCollider(RAPIER.ColliderDesc.cuboid(.95, .35, 2.06)
+    const chassisCollider=world.createCollider(RAPIER.ColliderDesc.cuboid(.97, .35, 2.53)
       .setMassProperties(
         CAR_MASS,
         { x:0, y:CENTER_OF_MASS_Y, z:0 },
@@ -669,17 +696,20 @@
     const WHEEL_RADIUS = .35;
     const WHEEL_REST_LENGTH = .32;
     const wheelAnchors = [
-      { x:-.91,y:-.20,z: 1.36,front:true },
-      { x: .91,y:-.20,z: 1.36,front:true },
-      { x:-.91,y:-.20,z:-1.36,front:false },
-      { x: .91,y:-.20,z:-1.36,front:false },
+      { x:-.92,y:-.20,z: 1.48,front:true },
+      { x: .92,y:-.20,z: 1.48,front:true },
+      { x:-.92,y:-.20,z:-1.48,front:false },
+      { x: .92,y:-.20,z:-1.48,front:false },
     ];
     const wheels = [];
-    const tireGeometry = new THREE.CylinderGeometry(WHEEL_RADIUS,WHEEL_RADIUS,.29,12);
+    // Modernized stock steel wheels with hubcaps and whitewall rings.
+    const tireGeometry=new THREE.CylinderGeometry(WHEEL_RADIUS,WHEEL_RADIUS,.285,24);
     tireGeometry.rotateZ(Math.PI/2);
-    const hubGeometry = new THREE.CylinderGeometry(.15,.15,.31,12);
+    const hubGeometry=new THREE.CylinderGeometry(.187,.187,.018,24);
     hubGeometry.rotateZ(Math.PI/2);
-    const hubMaterial = material(0x87909a);
+    const hubMaterial=new THREE.MeshStandardMaterial({color:0xb9bdba,metalness:.68,roughness:.31});
+    const darkWheelMaterial=material(0x343638);
+    const whitewallMaterial=material(0xd8d1bd);
     for (let i = 0; i < wheelAnchors.length; i++) {
       const anchor = wheelAnchors[i];
       vehicle.addWheel(
@@ -693,7 +723,21 @@
       const pivot = new THREE.Group();
       const spinner = new THREE.Group();
       spinner.add(new THREE.Mesh(tireGeometry, rubberMat));
-      spinner.add(new THREE.Mesh(hubGeometry, hubMaterial));
+      const wheelSide=anchor.x<0?-1:1;
+      const outerFace=new THREE.Mesh(new THREE.CylinderGeometry(.281,.281,.018,24),darkWheelMaterial);
+      outerFace.geometry.rotateZ(Math.PI/2);
+      outerFace.position.x=wheelSide*.151;
+      spinner.add(outerFace);
+      const whitewall=new THREE.Mesh(new THREE.TorusGeometry(.273,.011,5,28),whitewallMaterial);
+      whitewall.rotation.y=Math.PI/2;whitewall.position.x=wheelSide*.164;
+      spinner.add(whitewall);
+      const hub=new THREE.Mesh(hubGeometry,hubMaterial);
+      hub.position.x=wheelSide*.170;
+      spinner.add(hub);
+      const hubCenter=new THREE.Mesh(new THREE.CylinderGeometry(.055,.055,.022,12),chrome);
+      hubCenter.geometry.rotateZ(Math.PI/2);
+      hubCenter.position.x=wheelSide*.184;
+      spinner.add(hubCenter);
       pivot.add(spinner);
       car.add(pivot);
       wheels.push({ anchor, pivot, spinner });
@@ -717,10 +761,10 @@
     // collider and all four raycast wheels remain completely unchanged.
     // One body per part, at most four loose pieces per player vehicle.
     const DETACH_SPECS=Object.freeze({
-      hood:          {half:[.72,.040,.67], outward: 1, launch: 4.5, spin: 6.0},
-      trunk:         {half:[.76,.040,.44], outward:-1, launch: 4.1, spin: 5.2},
-      front_bumper:  {half:[1.06,.08,.095],outward: 1, launch: 5.3, spin: 5.5},
-      rear_bumper:   {half:[1.06,.08,.095],outward:-1, launch: 5.0, spin: 5.5},
+      hood:          {half:[.81,.040,.775], outward: 1, launch: 4.5, spin: 6.0},
+      trunk:         {half:[.84,.040,.48], outward:-1, launch: 4.1, spin: 5.2},
+      front_bumper:  {half:[1.03,.07,.10],outward: 1, launch: 5.3, spin: 5.5},
+      rear_bumper:   {half:[1.03,.07,.10],outward:-1, launch: 5.0, spin: 5.5},
     });
     const detachedParts=new Map();
     const tempRotation=new THREE.Quaternion();
@@ -900,7 +944,7 @@
       toObstacle.y=0;
       if(toObstacle.lengthSq()<.01) toObstacle.set(0,0,1);
       toObstacle.normalize();
-      out.set(carPos.x+toObstacle.x*1.2, carPos.y, carPos.z+toObstacle.z*1.2);
+      out.set(carPos.x+toObstacle.x*2.0, carPos.y, carPos.z+toObstacle.z*2.0);
       return false;
     }
 
@@ -909,38 +953,38 @@
       visualBody.updateWorldMatrix(true,false);
       localImpact.copy(point);
       visualBody.worldToLocal(localImpact);
-      const sideScore=Math.abs(localImpact.x)/.95;
-      const endScore=Math.abs(localImpact.z)/2.06;
+      const sideScore=Math.abs(localImpact.x)/.985;
+      const endScore=Math.abs(localImpact.z)/2.55;
       if(endScore>=sideScore*.90) return localImpact.z>=0?'front':'rear';
       return localImpact.x<0?'left':'right';
     }
 
     function dentAtCollision(zone,score){
-      const x=THREE.MathUtils.clamp(localImpact.x,-.84,.84);
-      const z=THREE.MathUtils.clamp(localImpact.z,-2.04,2.04);
+      const x=THREE.MathUtils.clamp(localImpact.x,-.90,.90);
+      const z=THREE.MathUtils.clamp(localImpact.z,-2.54,2.54);
       const inc=.045+.16*score;
-      const radius=.68+.24*score;
+      const radius=.72+.27*score;
       let changed=0;
       if(zone==='front'){
-        changed+=dentPanel(['hood',[x,.46,THREE.MathUtils.clamp(z,1.28,1.95)],
-          [0,-1,-.15],radius+.10,inc,.42]);
-        if(x<-.32) changed+=dentPanel(['left_fender_top',[-.83,.44,1.52],
-          [0,-1,-.12],.68,inc*.5,.26]);
-        if(x>.32) changed+=dentPanel(['right_fender_top',[.83,.44,1.52],
-          [0,-1,-.12],.68,inc*.5,.26]);
-      } else if(zone==='rear'){
-        changed+=dentPanel(['trunk',[x,.46,THREE.MathUtils.clamp(z,-1.98,-1.27)],
-          [0,-1,.15],radius+.10,inc,.42]);
-        if(x<-.32) changed+=dentPanel(['left_rear_deck',[-.84,.43,-1.65],
-          [0,-1,.12],.68,inc*.5,.26]);
-        if(x>.32) changed+=dentPanel(['right_rear_deck',[.84,.43,-1.65],
-          [0,-1,.12],.68,inc*.5,.26]);
-      } else {
+        changed+=dentPanel(['hood',[x,.49,THREE.MathUtils.clamp(z,1.33,2.40)],
+          [0,-1,-.12],radius+.10,inc,.44]);
+        if(x<-.32)changed+=dentPanel(['left_fender_top',[-.87,.47,1.92],
+          [0,-1,-.10],.75,inc*.53,.27]);
+        if(x>.32)changed+=dentPanel(['right_fender_top',[.87,.47,1.92],
+          [0,-1,-.10],.75,inc*.53,.27]);
+      }else if(zone==='rear'){
+        changed+=dentPanel(['trunk',[x,.48,THREE.MathUtils.clamp(z,-2.42,-1.68)],
+          [0,-1,.12],radius+.10,inc,.43]);
+        if(x<-.32)changed+=dentPanel(['left_rear_deck',[-.89,.47,-2.02],
+          [0,-1,.1],.73,inc*.52,.27]);
+        if(x>.32)changed+=dentPanel(['right_rear_deck',[.89,.47,-2.02],
+          [0,-1,.1],.73,inc*.52,.27]);
+      }else{
         const side=zone==='left'?'left':'right';
         const normal=side==='left'?[1,0,0]:[-1,0,0];
-        const part=z>.78?'front_fender':z>-.14?'front_door':z>-.79?'rear_door':'rear_fender';
+        const part=z>.99?'front_fender':z>-.17?'front_door':z>-.97?'rear_door':'rear_fender';
         changed+=dentPanel([`${side}_${part}`,
-          [side==='left'?-.95:.95,.20,z],normal,radius,inc,.44]);
+          [side==='left'?-.96:.96,.14,z],normal,radius,inc,.44]);
       }
       return changed;
     }
