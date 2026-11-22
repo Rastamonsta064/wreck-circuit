@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v0.6 — процедурный седан с модульными панелями">
-  <title>Wreck Circuit — Procedural Sedan v0.6</title>
+  <meta name="description" content="Wreck Circuit v0.7 — лаборатория деформации кузова">
+  <title>Wreck Circuit — Body Damage Lab v0.7</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -25,7 +25,7 @@
     .audio-toggle { white-space: nowrap; }
     .audio-toggle[aria-pressed="false"] { color: #bbc5ce; background: rgba(18,27,36,.6); }
     #inspect-toggle[aria-pressed="true"] { background: #f6c363; color: #232933; }
-    .help { z-index: 2; position: absolute; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); background: rgba(18,27,36,.6); color: #fff; border-radius: 9px; padding: 9px 14px; white-space: nowrap; font-size: 12px; pointer-events: none; }
+    .help { z-index: 2; position: absolute; top: auto; bottom: 88px; left: 50%; transform: translateX(-50%); background: rgba(18,27,36,.6); color: #fff; border-radius: 9px; padding: 9px 14px; white-space: nowrap; font-size: 12px; pointer-events: none; }
     .touch-controls { position: absolute; z-index: 3; bottom: max(15px, env(safe-area-inset-bottom)); left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; pointer-events: none; }
     .group { display: flex; align-items: flex-end; gap: clamp(6px, 1.5vw, 13px); pointer-events: none; }
     .ctrl { --h: clamp(58px, 12vh, 82px); pointer-events: auto; display: flex; justify-content: center; align-items: center; width: clamp(58px, 12vw, 82px); height: var(--h); border-radius: 15px; color: #fff; border: 2px solid rgba(255,255,255,.32); background: rgba(25,34,46,.72); box-shadow: 0 4px 10px #0003; font: 800 19px system-ui,sans-serif; touch-action: none; -webkit-tap-highlight-color: transparent; cursor: pointer; padding: 0; }
@@ -42,8 +42,25 @@
 .mode-buttons button.active { background: #f6c363; color: #222831; border-color: #ffe3a0; }
 .mode-description { margin-top: 6px; font-size: 10px; color: #d7dee5; white-space: normal; max-width: 270px; }
 @media (hover: hover) and (pointer: fine) { .mode-panel { top: max(66px, calc(env(safe-area-inset-top) + 55px)); } }
-@media (max-height: 440px) { .mode-panel { top: max(4px, env(safe-area-inset-top)); padding: 5px 7px; } .mode-title, .mode-description { display: none; } .mode-buttons button { padding: 7px 10px; font-size: 11px; min-width: 64px; } }
+@media (max-height: 440px) { .mode-panel { top: max(54px, calc(env(safe-area-inset-top) + 49px)); padding: 5px 7px; } .mode-title, .mode-description { display: none; } .mode-buttons button { padding: 7px 10px; font-size: 11px; min-width: 64px; } }
 @media (max-width: 540px) { .mode-buttons button { min-width: 58px; padding: 8px 8px; } }
+    /* Lab-only impact controls. Kept between steering and pedals on phones. */
+    .damage-panel { position:absolute; z-index:4; left:50%; transform:translateX(-50%); bottom:max(14px,env(safe-area-inset-bottom));
+      display:flex; flex-direction:column; align-items:center; gap:5px; pointer-events:none; max-width:calc(100vw - 330px); }
+    .damage-label { color:#fff; font-weight:800; font-size:10px; text-shadow:0 1px 5px #101820; letter-spacing:.045em; white-space:nowrap; }
+    .damage-buttons { display:flex; gap:4px; justify-content:center; flex-wrap:nowrap; pointer-events:auto; }
+    .damage-buttons button { background:rgba(23,32,43,.84); border:1px solid #788696; color:#fff; border-radius:8px;
+      padding:9px 7px; font:750 10px system-ui,sans-serif; cursor:pointer; white-space:nowrap; touch-action:manipulation; }
+    .damage-buttons button:active { background:#f6c363; color:#202630; }
+    .damage-buttons .clear-damage { border-color:#b2a088; color:#f9dba8; }
+    @media (max-height:550px), (max-width:950px) { .help { display:none; } }
+    @media (max-height:440px) {
+      .damage-panel { bottom:max(8px,env(safe-area-inset-bottom)); max-width:calc(100vw - 325px); }
+      .damage-buttons button { padding:7px 5px; font-size:9px; }
+      .damage-label { font-size:9px; }
+    }
+    @media (max-width:690px) { .damage-panel { max-width:calc(100vw - 280px); } .damage-buttons { flex-wrap:wrap; } }
+    @media (max-width:780px) { .damage-panel { bottom:max(85px,calc(env(safe-area-inset-bottom) + 77px)); } }
     .message { position: absolute; z-index: 6; left: 50%; top: 50%; transform: translate(-50%,-50%); width: min(90vw, 520px); padding: 22px; background: #18232eea; color: #fff; text-align: center; border-radius: 14px; line-height: 1.6; box-shadow: 0 10px 35px #0005; }
     .message[hidden] { display: none; }
     .portrait-note { display: none; }
@@ -69,7 +86,7 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.6</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v0.7</span></div>
     <div class="hud-actions">
       <button id="inspect-toggle" class="restart" type="button" aria-pressed="false" aria-label="Переключить камеру осмотра">👁 Осмотр</button>
       <button id="audio-toggle" class="restart audio-toggle" type="button" aria-pressed="true" aria-label="Выключить звук">🔊 Звук</button>
@@ -85,7 +102,7 @@
     </div>
     <div id="mode-description" class="mode-description">Тяжёлый автомобиль · сбалансированное сцепление</div>
   </div>
-  <div class="help">W/↑ газ · S/↓ тормоз/реверс · A D/← → руль · Space ручник · R рестарт · C осмотр · 1/2/3 режим</div>
+  <div class="help">WASD / стрелки — езда · Space — ручник · R — сброс · C — осмотр · 4/5/6/7 — вмятины</div>
   <div class="touch-controls" aria-label="Кнопки управления на телефоне">
     <div class="group">
       <button class="ctrl" data-control="left" type="button" aria-label="Влево">◀</button>
@@ -95,6 +112,16 @@
       <button class="ctrl handbrake" data-control="handbrake" type="button" aria-label="Ручной тормоз">HB</button>
       <button class="ctrl brake" data-control="brake" type="button" aria-label="Тормоз">ТОРМОЗ</button>
       <button class="ctrl gas" data-control="gas" type="button" aria-label="Газ">ГАЗ</button>
+    </div>
+  </div>
+  <div class="damage-panel" aria-label="Тестирование повреждений кузова">
+    <div class="damage-label">ТЕСТ ВМЯТИН · <span id="damage-counter">0</span> ударов</div>
+    <div class="damage-buttons">
+      <button data-damage="front" type="button">НОС</button>
+      <button data-damage="left" type="button">ЛЕВО</button>
+      <button data-damage="right" type="button">ПРАВО</button>
+      <button data-damage="rear" type="button">КОРМА</button>
+      <button id="damage-clear" class="clear-damage" type="button">СБРОС</button>
     </div>
   </div>
   <div class="portrait-note"><span class="rotate-symbol">↻</span>Поверните телефон горизонтально,<br>чтобы начать заезд</div>
@@ -415,7 +442,131 @@
     roofNumber.position.set(0,1.092,-.13);
     visualBody.add(roofNumber);
     // Body parts are individually addressable (hood, doors, fenders, bumpers).
-    // Actual damage/deformation will be implemented in v0.7+.
+    // v0.7: scripted cosmetic dents. Real collision-triggered damage comes in v0.9.
+    // Damage operates in visualBody-local coordinates, NOT in physics world coordinates.
+    // Moving vertices never changes the Rapier chassis collider or wheel suspension.
+    const deformableNames = [
+      'hood','trunk',
+      'left_front_door','left_rear_door','left_front_fender','left_rear_fender',
+      'right_front_door','right_rear_door','right_front_fender','right_rear_fender',
+      'left_fender_top','right_fender_top','left_rear_deck','right_rear_deck',
+    ];
+    const deformableMeshes = new Map();
+    for(const name of deformableNames){
+      const mesh=bodyParts.get(name);
+      if(!mesh) throw new Error('Не найдена панель кузова: '+name);
+      const attribute=mesh.geometry.getAttribute('position');
+      const base=mesh.userData.restPositions;
+      if(!base || base.length!==attribute.array.length) throw new Error('Некорректная сетка: '+name);
+      // Each mesh needs separate vertex colors; shared paint materials stay untouched.
+      const meshMaterial=mesh.material.clone();
+      meshMaterial.vertexColors=true;
+      mesh.material=meshMaterial;
+      const colors=new Float32Array(base.length).fill(1);
+      mesh.geometry.setAttribute('color',new THREE.BufferAttribute(colors,3));
+      mesh.userData.damageOffset=new Float32Array(base.length);
+      deformableMeshes.set(name,mesh);
+    }
+    // Local coordinates: +Z = front, +X = right. 3D dent direction must
+    // point INWARD, never through the exterior surface away from the car.
+    const TEST_DENTS={
+      front:[
+        ['hood',[-.08,.46,1.60],[0,-1,-.1],.84,.17,.37],
+        ['left_fender_top',[-.83,.44,1.60],[0,-1,-.1],.66,.075,.20],
+        ['right_fender_top',[.83,.44,1.60],[0,-1,-.1],.66,.075,.20],
+      ],
+      rear:[
+        ['trunk',[.08,.46,-1.69],[0,-1,.1],.77,.17,.37],
+        ['left_rear_deck',[-.84,.43,-1.62],[0,-1,.1],.65,.065,.19],
+        ['right_rear_deck',[.84,.43,-1.62],[0,-1,.1],.65,.065,.19],
+      ],
+      left:[
+        ['left_front_door',[-.95,.22,.35],[1,0,0],.80,.18,.38],
+        ['left_rear_door',[-.95,.19,-.42],[1,0,0],.70,.11,.28],
+        ['left_front_fender',[-.95,.14,1.10],[1,0,0],.60,.06,.20],
+      ],
+      right:[
+        ['right_front_door',[.95,.22,.35],[-1,0,0],.80,.18,.38],
+        ['right_rear_door',[.95,.19,-.42],[-1,0,0],.70,.11,.28],
+        ['right_front_fender',[.95,.14,1.10],[-1,0,0],.60,.06,.20],
+      ],
+    };
+    const damageCounter=document.getElementById('damage-counter');
+    let totalTestHits=0;
+    function dentPanel(spec){
+      const [name,impact,normal,radius,depth,maxDepth]=spec;
+      const mesh=deformableMeshes.get(name);
+      const pos=mesh.geometry.getAttribute('position');
+      const col=mesh.geometry.getAttribute('color');
+      const rest=mesh.userData.restPositions;
+      const offset=mesh.userData.damageOffset;
+      const nx=normal[0],ny=normal[1],nz=normal[2];
+      const norm=Math.hypot(nx,ny,nz);
+      let changes=0;
+      for(let i=0;i<pos.count;i++){
+        const j=i*3;
+        // Geometry vertices are in the mesh's frame. Panel center can be
+        // offset from its parent (for example, with a BoxGeometry).
+        const x=rest[j]+mesh.position.x, y=rest[j+1]+mesh.position.y, z=rest[j+2]+mesh.position.z;
+        const dx=x-impact[0],dy=y-impact[1],dz=z-impact[2];
+        const dsq=dx*dx+dy*dy+dz*dz;
+        if(dsq>=radius*radius) continue;
+        const t=1-dsq/(radius*radius);
+        const falloff=t*t;
+        const current=Math.hypot(offset[j],offset[j+1],offset[j+2]);
+        const inc=Math.min(depth*falloff,Math.max(0,maxDepth-current));
+        if(inc<.00001) continue;
+        offset[j]+=inc*nx/norm;
+        offset[j+1]+=inc*ny/norm;
+        offset[j+2]+=inc*nz/norm;
+        pos.array[j]=rest[j]+offset[j];
+        pos.array[j+1]=rest[j+1]+offset[j+1];
+        pos.array[j+2]=rest[j+2]+offset[j+2];
+        const level=Math.min(1,Math.hypot(offset[j],offset[j+1],offset[j+2])/maxDepth);
+        // Darkened vertices simulate bent / scraped paint without textures.
+        col.array[j]=1-.26*level;
+        col.array[j+1]=1-.39*level;
+        col.array[j+2]=1-.62*level;
+        changes++;
+      }
+      if(changes){
+        pos.needsUpdate=true;
+        col.needsUpdate=true;
+        mesh.geometry.computeVertexNormals();
+        mesh.geometry.computeBoundingSphere();
+        mesh.geometry.computeBoundingBox();
+      }
+      return changes;
+    }
+    function applyTestDent(side){
+      const list=TEST_DENTS[side];
+      if(!list) return;
+      let changed=0;
+      for(const spec of list) changed+=dentPanel(spec);
+      if(changed){
+        totalTestHits++;
+        damageCounter.textContent=String(totalTestHits);
+      }
+    }
+    function resetDamage(){
+      totalTestHits=0;
+      damageCounter.textContent='0';
+      for(const mesh of deformableMeshes.values()){
+        const pos=mesh.geometry.getAttribute('position');
+        const col=mesh.geometry.getAttribute('color');
+        pos.array.set(mesh.userData.restPositions);
+        col.array.fill(1);
+        mesh.userData.damageOffset.fill(0);
+        pos.needsUpdate=true;
+        col.needsUpdate=true;
+        mesh.geometry.computeVertexNormals();
+        mesh.geometry.computeBoundingSphere();
+      }
+    }
+    document.querySelectorAll('[data-damage]').forEach(button=>{
+      button.addEventListener('click',()=>applyTestDent(button.dataset.damage));
+    });
+    document.getElementById('damage-clear').addEventListener('click',resetDamage);
 
     const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     world.timestep = 1 / 60;
@@ -713,6 +864,9 @@
       if (!event.repeat && (event.code in keyToControl)) unlockSound();
       if (event.code === 'KeyR') { event.preventDefault(); if (!event.repeat) resetCar(); return; }
       if (event.code === 'KeyC') { event.preventDefault(); if (!event.repeat) toggleInspect(); return; }
+      const dentKeys={Digit4:'front',Digit5:'left',Digit6:'right',Digit7:'rear'};
+      if(dentKeys[event.code]) { event.preventDefault(); if(!event.repeat) applyTestDent(dentKeys[event.code]); return; }
+      if(event.code==='Digit0') { event.preventDefault(); if(!event.repeat) resetDamage(); return; }
       if (event.code === 'Digit1') { if (!event.repeat) selectPreset('arcade'); return; }
       if (event.code === 'Digit2') { if (!event.repeat) selectPreset('derby'); return; }
       if (event.code === 'Digit3') { if (!event.repeat) selectPreset('drift'); return; }
@@ -926,6 +1080,7 @@
       }
       steering=0;
       resetEffects();
+      resetDamage();
       smoothedBrake=0;
       reverseEngaged=false;
       carBody.wakeUp();
@@ -1093,7 +1248,7 @@
     frame();
   } catch (error) {
     console.error('Wreck Circuit startup failed:', error);
-    showError('Не удалось запустить 3D-сцену v0.6: ' + (error?.message || String(error)));
+    showError('Не удалось запустить 3D-сцену v0.7: ' + (error?.message || String(error)));
   }
 </script>
 </body>
