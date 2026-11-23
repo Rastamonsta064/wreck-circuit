@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v1.1 — Caprice 80s Sedan">
-  <title>Wreck Circuit — Caprice Refinement v1.1</title>
+  <meta name="description" content="Wreck Circuit v1.2 — Parametric Vehicle Lab">
+  <title>Wreck Circuit — Parametric Vehicle Lab v1.2</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -101,14 +101,66 @@
       .audio-toggle { font-size: 12px; }
       #inspect-toggle { font-size: 11px; padding: 9px 7px; }
     }
+
+    /* v1.2: on-device parameterized shape editor. Hidden during driving. */
+    .model-lab-toggle[aria-pressed="true"] { background:#edc16c; color:#1c2531; }
+    .model-lab-panel { display:none; position:absolute; z-index:7;
+      left:max(12px,env(safe-area-inset-left)); top:72px;
+      bottom:max(12px,env(safe-area-inset-bottom)); width:min(305px,38vw);
+      overflow:auto; overscroll-behavior:contain; touch-action:pan-y;
+      color:#ecf0f4; background:rgba(18,27,36,.92);
+      border:1px solid #ffffff30; border-radius:14px; padding:12px;
+      box-shadow:0 6px 24px #0004; font-size:11px; }
+    #app.model-lab-open .model-lab-panel { display:block; }
+    #app.model-lab-open .touch-controls,
+    #app.model-lab-open .damage-panel,
+    #app.model-lab-open .mode-panel,
+    #app.model-lab-open .help { display:none!important; }
+    .lab-model-head {display:flex;justify-content:space-between;align-items:start;gap:8px; margin-bottom:8px;}
+    .lab-model-head strong {font-size:14px; color:#ffe2a5;}
+    .lab-model-note {font-size:10px;color:#b6c6d4;line-height:1.3;margin:0 0 10px;}
+    .model-param {display:block;margin-bottom:10px;}
+    .model-param-title {display:flex;justify-content:space-between;gap:8px;margin-bottom:2px;}
+    .model-param output {font-variant-numeric:tabular-nums;color:#f5cc7a;font-weight:800;}
+    .model-param input[type="range"] {width:100%;height:25px;accent-color:#ecc16d;touch-action:pan-x;cursor:pointer;}
+    .lab-model-buttons {display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;}
+    .lab-model-buttons button {padding:7px 9px; border-radius:7px; border:1px solid #758698;
+      background:#344454;color:#fff;font-weight:750;font-size:10px;cursor:pointer;touch-action:manipulation;}
+    .lab-model-buttons button.active {background:#efc66f;color:#243039;border-color:#ffe6a5;}
+    .lab-model-buttons button:focus-visible {outline:2px solid #f5d69c;outline-offset:2px;}
+    .lab-model-section {margin:12px 0 6px;font-size:10px;letter-spacing:.045em;color:#cbd5e1;font-weight:800;}
+    .lab-model-status {margin-top:8px;font-size:10px;color:#9ecbad;min-height:13px;}
+    .lab-camera-hint {position:absolute;display:none;z-index:6;bottom:15px;left:50%;transform:translateX(-50%);
+      color:#fff;font-size:11px;background:#18232bcc;padding:7px 11px;border-radius:9px;pointer-events:none;white-space:nowrap;}
+    #app.model-lab-open .lab-camera-hint {display:block;}
+    @media(max-width:950px){
+      .model-lab-panel {width:min(245px,36vw);top:59px;padding:9px;}
+      .lab-model-head strong {font-size:12px;}
+      .lab-model-note {font-size:9px;margin-bottom:6px;}
+      .model-param {margin-bottom:5px;}
+      .model-param input[type="range"] {height:19px;}
+      .lab-model-section {margin:7px 0 4px;}
+      .lab-model-buttons button {padding:6px 7px;}
+      .lab-camera-hint {font-size:9px;bottom:5px;}
+    }
+    @media(max-width:700px){
+      .model-lab-panel {width:min(220px,42vw);top:50px;}
+      .model-lab-toggle {font-size:11px;padding:10px 7px;}
+      .model-lab-head {flex-wrap:wrap;}
+    }
+    @media(max-height:375px){
+      .model-lab-panel {top:48px;bottom:6px;}
+      .model-lab-toggle {padding:8px 5px;}
+    }
   </style>
 </head>
 <body>
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v1.1</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v1.2</span></div>
     <div class="hud-actions">
+      <button id="model-lab-toggle" class="restart model-lab-toggle" type="button" aria-pressed="false">◈ Модель</button>
       <button id="inspect-toggle" class="restart" type="button" aria-pressed="false" aria-label="Переключить камеру осмотра">👁 Осмотр</button>
       <button id="audio-toggle" class="restart audio-toggle" type="button" aria-pressed="true" aria-label="Выключить звук">🔊 Звук</button>
       <button id="restart" class="restart" type="button">↻ Перезапуск</button>
@@ -166,6 +218,38 @@
       </div>
     </div>
   </div>
+  <aside id="model-lab-panel" class="model-lab-panel" aria-label="Редактор формы автомобиля" aria-hidden="true">
+    <div class="lab-model-head"><strong>CAPRICE 80s · MODEL LAB</strong><span>v1.2</span></div>
+    <p class="lab-model-note">Геометрия обновляется прямо на машине. Физика остаётся настроенной на базовый кузов; повреждения после изменения формы сбрасываются.</p>
+    <div class="lab-model-section">ПРОПОРЦИИ</div>
+    <label class="model-param"><span class="model-param-title">Ширина кузова <output data-model-out="width">1.96 м</output></span><input type="range" data-model-param="width" min="1.85" max="2.08" step="0.01" value="1.96"></label>
+    <label class="model-param"><span class="model-param-title">Высота крыши <output data-model-out="roof">1.44 м</output></span><input type="range" data-model-param="roof" min="1.30" max="1.58" step="0.01" value="1.44"></label>
+    <label class="model-param"><span class="model-param-title">Передний свес <output data-model-out="front">1.55 м</output></span><input type="range" data-model-param="front" min="1.33" max="1.78" step="0.01" value="1.55"></label>
+    <label class="model-param"><span class="model-param-title">Задний свес <output data-model-out="rear">1.59 м</output></span><input type="range" data-model-param="rear" min="1.35" max="1.80" step="0.01" value="1.59"></label>
+    <label class="model-param"><span class="model-param-title">Наклон стоек <output data-model-out="rake">0 см</output></span><input type="range" data-model-param="rake" min="-12" max="12" step="1" value="0"></label>
+    <label class="model-param"><span class="model-param-title">Подъём арок <output data-model-out="arch">0 см</output></span><input type="range" data-model-param="arch" min="0" max="10" step="1" value="0"></label>
+    <div class="lab-model-section">РАКУРСЫ</div>
+    <div class="lab-model-buttons">
+      <button data-model-view="side" type="button">Сбоку</button>
+      <button data-model-view="front" type="button">Спереди</button>
+      <button data-model-view="rear" type="button">Сзади</button>
+      <button data-model-view="threequarter" type="button" class="active">3/4</button>
+      <button id="model-zoom-in" type="button" aria-label="Приблизить камеру">＋</button>
+      <button id="model-zoom-out" type="button" aria-label="Отдалить камеру">－</button>
+    </div>
+    <div class="lab-model-section">ПРОФИЛИ</div>
+    <div class="lab-model-buttons">
+      <button data-model-preset="classic" type="button">Classic 80s</button>
+      <button data-model-preset="long" type="button">Long Cruiser</button>
+      <button data-model-preset="low" type="button">Low Custom</button>
+    </div>
+    <div class="lab-model-buttons">
+      <button id="model-reset" type="button">Сброс формы</button>
+      <button id="model-copy" type="button">Копировать JSON</button>
+    </div>
+    <div id="model-lab-status" class="lab-model-status">Изменения применяются сразу</div>
+  </aside>
+  <div class="lab-camera-hint">Проведи пальцем по машине, чтобы повернуть камеру · M — закрыть</div>
   <div class="portrait-note"><span class="rotate-symbol">↻</span>Поверните телефон горизонтально,<br>чтобы начать заезд</div>
   <div id="message" class="message">Загрузка физического движка…</div>
 </main>
@@ -385,8 +469,27 @@
           outer.push([side*(.978-.012*Math.abs(z)/2.7),y+.008,z]);
           inner.push([side*.84,y-.075,z]);
         }
-        curvedTrim(visualBody,outer,.013,paintShade);
-        curvedTrim(visualBody,inner,.026,rubberTrim);
+        // Continuous folded metal around the arch, rather than a tube edge.
+        const lipVertices=[],lipIndices=[];
+        for(let i=0;i<=64;i++){
+          const a=i*Math.PI/64;
+          const z=center-r*Math.cos(a), y=-.39+height*Math.sin(a);
+          for(const [outerX,drop] of [[.991,.003],[.947,-.014],[.866,-.066]]){
+            lipVertices.push(side*outerX,y+drop,z);
+          }
+        }
+        for(let i=0;i<64;i++)for(let ring=0;ring<2;ring++){
+          const a=i*3+ring,b=a+1,c=a+3,d=c+1;
+          lipIndices.push(a,c,b,b,c,d);
+        }
+        const lipGeo=new THREE.BufferGeometry();
+        lipGeo.setAttribute('position',new THREE.Float32BufferAttribute(lipVertices,3));
+        lipGeo.setIndex(lipIndices);
+        lipGeo.computeVertexNormals();
+        const lip=new THREE.Mesh(lipGeo,paintShade);
+        lip.name=`caprice_${name}_${center>0?'front':'rear'}_arch_lip`;
+        visualBody.add(lip);
+        curvedTrim(visualBody,inner,.019,rubberTrim);
       }
       // The sill moldings stop at the wheel openings; no chrome crossing tires.
       const lengths=[[-2.52,-2.11],[-.86,.84],[2.15,2.53]];
@@ -1482,6 +1585,7 @@
     let inspectMode = false, inspectAngle = .6;
     const inspectButton = document.getElementById('inspect-toggle');
     function toggleInspect() {
+      if (modelLabOpen) toggleModelLab(false);
       inspectMode = !inspectMode;
       inspectButton.setAttribute('aria-pressed', String(inspectMode));
       inspectButton.textContent = inspectMode ? '↩ Езда' : '👁 Осмотр';
@@ -1503,6 +1607,8 @@
       document.querySelectorAll('[data-control]').forEach(button => button.classList.remove('pressed'));
     }
     window.addEventListener('keydown', event => {
+      if (event.code==='KeyM') { event.preventDefault(); if(!event.repeat)toggleModelLab(); return; }
+      if (modelLabOpen) { if(event.code==='Escape'){toggleModelLab(false);event.preventDefault();} return; }
       if (!event.repeat && (event.code in keyToControl)) unlockSound();
       if (event.code === 'KeyR') { event.preventDefault(); if (!event.repeat) resetCar(); return; }
       if (event.code === 'KeyC') { event.preventDefault(); if (!event.repeat) toggleInspect(); return; }
@@ -1537,6 +1643,7 @@
       };
       button.addEventListener('pointerdown', event => {
         event.preventDefault();
+        if(modelLabOpen)return;
         unlockSound();
         button.setPointerCapture(event.pointerId);
         pointerActions.set(event.pointerId, action);
@@ -1852,6 +1959,188 @@
       if (carBody.translation().y < -5) resetCar();
     }
 
+
+    // ---------- v1.2 parametric body shape: reproducible, reversible morph ----------
+    // A baseline car is constructed from procedural panels above. The editor
+    // regenerates *mesh vertices* from immutable baseline buffers, so it never
+    // accumulates floating-point drift and each named damage part survives.
+    const MODEL_DEFAULT=Object.freeze({width:1.96,roof:1.44,front:1.55,rear:1.59,rake:0,arch:0});
+    const MODEL_PRESETS=Object.freeze({
+      classic:MODEL_DEFAULT,
+      long:{width:2.01,roof:1.44,front:1.73,rear:1.75,rake:1,arch:3},
+      low:{width:2.05,roof:1.32,front:1.61,rear:1.59,rake:9,arch:4},
+    });
+    let modelProfile={...MODEL_DEFAULT};
+    let modelLabOpen=false;
+    let modelCamAngle=.82, modelCamElev=.34, modelCamDistance=9;
+    const modelPanel=document.getElementById('model-lab-panel');
+    const modelLabButton=document.getElementById('model-lab-toggle');
+    const modelStatus=document.getElementById('model-lab-status');
+    // Mesh transforms are captured in visualBody-space with all doors shut.
+    // Other moving systems (wheels, rigid body) are outside this mesh group.
+    visualBody.updateWorldMatrix(true,true);
+    const bodyInverse=visualBody.matrixWorld.clone().invert();
+    const shapeMeshes=[];
+    visualBody.traverse(obj=>{
+      if(!obj.isMesh || !obj.geometry?.getAttribute('position'))return;
+      obj.updateWorldMatrix(true,false);
+      const toBody=bodyInverse.clone().multiply(obj.matrixWorld);
+      const toLocal=toBody.clone().invert();
+      const a=obj.geometry.getAttribute('position');
+      shapeMeshes.push({mesh:obj,baseline:new Float32Array(a.array),toBody,toLocal});
+    });
+    const vec=new THREE.Vector3();
+    const smooth=(a,b,x)=>{const t=THREE.MathUtils.clamp((x-a)/(b-a),0,1);return t*t*(3-2*t)};
+    function applyShapePoint(p,profile){
+      const sourceX=p.x, sourceY=p.y, sourceZ=p.z;
+      const side=Math.sign(sourceX)||1;
+      // Keep the wheel centers at +/-1.48 Z, while changing the front and
+      // rear portions beyond them. This avoids a wheel/collider mismatch.
+      p.z=sourceZ;
+      if(sourceZ>1.73)p.z+=(profile.front-MODEL_DEFAULT.front)*smooth(1.73,2.72,sourceZ);
+      else if(sourceZ< -1.73)p.z-=(profile.rear-MODEL_DEFAULT.rear)*smooth(1.73,2.72,-sourceZ);
+      // Taller or shorter cabin, with the hood and door beltline fixed.
+      const roofWeight=smooth(.41,1.04,sourceY);
+      p.y=sourceY+(profile.roof-MODEL_DEFAULT.roof)*roofWeight;
+      // Rake shifts the upper glass and pillars longitudinally but does not
+      // shift the bonnet or the front/rear wheels.
+      if(sourceZ>.18)p.z+=(profile.rake/100)*roofWeight*smooth(.18,.67,sourceZ);
+      else if(sourceZ<-.18)p.z-=(profile.rake/100)*roofWeight*smooth(.18,.80,-sourceZ);
+      p.x=sourceX*(profile.width/MODEL_DEFAULT.width);
+      // Smoothly lift the inner edges of both wheel arches. Radius is held
+      // fixed because physics wheel positions are not regenerated in v1.2.
+      if(Math.abs(sourceX)>.76 && sourceY<.49){
+        const dz=Math.min(Math.abs(sourceZ-1.48),Math.abs(sourceZ+1.48));
+        if(dz<.73){
+          const near=Math.pow(1-smooth(.44,.73,dz),2);
+          const low=1-smooth(.20,.51,sourceY);
+          p.y+=(profile.arch/100)*near*(.3+.7*low);
+          p.x+=side*.008*near;
+        }
+      }
+    }
+    function syncModelInputs(){
+      for(const input of document.querySelectorAll('[data-model-param]')){
+        const id=input.dataset.modelParam;
+        input.value=String(modelProfile[id]);
+        const output=document.querySelector(`[data-model-out="${id}"]`);
+        output.textContent=(id==='rake'||id==='arch')?`${modelProfile[id]} см`:`${Number(modelProfile[id]).toFixed(2)} м`;
+      }
+    }
+    function regenerateCar(profile){
+      // Do not retain deformations on a resized body. This resets detached
+      // panels, hinge angles and dent accumulators before regenerating rest meshes.
+      resetDamage();
+      for(const item of shapeMeshes){
+        const {mesh,baseline,toBody,toLocal}=item;
+        const attribute=mesh.geometry.getAttribute('position');
+        for(let k=0;k<attribute.count;k++){
+          const j=k*3;
+          vec.set(baseline[j],baseline[j+1],baseline[j+2]).applyMatrix4(toBody);
+          applyShapePoint(vec,profile);
+          vec.applyMatrix4(toLocal);
+          attribute.array[j]=vec.x;attribute.array[j+1]=vec.y;attribute.array[j+2]=vec.z;
+        }
+        attribute.needsUpdate=true;
+        mesh.geometry.computeVertexNormals();
+        mesh.geometry.computeBoundingSphere();
+        const rest=mesh.userData.restPositions;
+        if(rest){
+          mesh.userData.restPositions=new Float32Array(attribute.array);
+          if(mesh.userData.damageOffset)mesh.userData.damageOffset.fill(0);
+        }
+        const colors=mesh.geometry.getAttribute('color');
+        if(colors){colors.array.fill(1);colors.needsUpdate=true;}
+      }
+      modelProfile={...profile};
+      syncModelInputs();
+      modelStatus.textContent='Модель перестроена · '+shapeMeshes.length+' мешей · повреждения сброшены';
+    }
+    function setModelPreset(name){
+      const preset=MODEL_PRESETS[name];if(!preset)return;
+      regenerateCar(preset);
+    }
+    function toggleModelLab(force){
+      const next=typeof force==='boolean'?force:!modelLabOpen;
+      if(next===modelLabOpen)return;
+      modelLabOpen=next;
+      document.getElementById('app').classList.toggle('model-lab-open',next);
+      modelLabButton.setAttribute('aria-pressed',String(next));
+      modelLabButton.textContent=next?'✕ Закрыть':'◈ Модель';
+      modelPanel.setAttribute('aria-hidden',String(!next));
+      // Safari: body touch-action:none blocks nested scroll containers.
+      document.body.style.touchAction=next?'auto':'none';
+      if(audio.ctx && audio.master){
+        audio.master.gain.setTargetAtTime(next?0:audio.enabled?.20:0,audio.ctx.currentTime,.04);
+      }
+      clearInput();
+      if(next){
+        inspectMode=false;
+        inspectButton.setAttribute('aria-pressed','false');
+        inspectButton.textContent='👁 Осмотр';
+        resetCar();
+        modelCamAngle=.82;modelCamElev=.34;modelCamDistance=9;
+        accumulator=0;
+      }else{
+        resetCar();
+        camera.position.set(0,9,-13);
+      }
+    }
+    modelLabButton.addEventListener('click',()=>toggleModelLab());
+    modelPanel.querySelectorAll('[data-model-param]').forEach(input=>{
+      input.addEventListener('input',()=>{
+        const next={...modelProfile,[input.dataset.modelParam]:Number(input.value)};
+        regenerateCar(next);
+      });
+    });
+    modelPanel.querySelectorAll('[data-model-preset]').forEach(button=>{
+      button.addEventListener('click',()=>setModelPreset(button.dataset.modelPreset));
+    });
+    modelPanel.querySelectorAll('[data-model-view]').forEach(button=>{
+      button.addEventListener('click',()=>{
+        const views={side:[Math.PI/2,.16],front:[0,.18],rear:[Math.PI,.18],threequarter:[.82,.34]};
+        const a=views[button.dataset.modelView];
+        if(!a)return;
+        [modelCamAngle,modelCamElev]=a;
+        modelPanel.querySelectorAll('[data-model-view]').forEach(b=>b.classList.toggle('active',b===button));
+      });
+    });
+    document.getElementById('model-zoom-in').addEventListener('click',()=>{modelCamDistance=Math.max(5.5,modelCamDistance-1.0);});
+    document.getElementById('model-zoom-out').addEventListener('click',()=>{modelCamDistance=Math.min(15,modelCamDistance+1.0);});
+    document.getElementById('model-reset').addEventListener('click',()=>regenerateCar(MODEL_DEFAULT));
+    document.getElementById('model-copy').addEventListener('click',async()=>{
+      const json=JSON.stringify(modelProfile,null,2);
+      try{
+        await navigator.clipboard.writeText(json);
+        modelStatus.textContent='Параметры скопированы';
+      }catch(e){
+        modelStatus.textContent='Не удалось скопировать · '+json.replaceAll('\n',' ');
+      }
+    });
+    // Orbit camera gestures are isolated from the mobile driving controls.
+    const orbitPointers=new Map();
+    canvas.addEventListener('pointerdown',e=>{
+      if(!modelLabOpen)return;
+      orbitPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointermove',e=>{
+      if(!modelLabOpen || !orbitPointers.has(e.pointerId))return;
+      const prev=orbitPointers.get(e.pointerId);
+      modelCamAngle-=(e.clientX-prev.x)*.008;
+      modelCamElev=THREE.MathUtils.clamp(modelCamElev+(e.clientY-prev.y)*.004,.05,.95);
+      orbitPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    });
+    const clearOrbit=e=>orbitPointers.delete(e.pointerId);
+    canvas.addEventListener('pointerup',clearOrbit);
+    canvas.addEventListener('pointercancel',clearOrbit);
+    canvas.addEventListener('wheel',e=>{
+      if(!modelLabOpen)return;
+      e.preventDefault();
+      modelCamDistance=THREE.MathUtils.clamp(modelCamDistance+e.deltaY*.014,5.5,15);
+    },{passive:false});
+    syncModelInputs();
+
     // Camera follows the actual rigid-body pose after each physics step.
     const clock = new THREE.Clock();
     let accumulator = 0;
@@ -1871,14 +2160,20 @@
       accumulator += delta;
       const fixedDt = 1 / 60;
       let updates = 0;
-      while (accumulator >= fixedDt && updates < 4) {
+      while (!modelLabOpen && accumulator >= fixedDt && updates < 4) {
         simulate(fixedDt);
         accumulator -= fixedDt;
         updates++;
       }
-      if (updates === 4) accumulator = 0;
-      updateVisualBody(delta);
-      if (inspectMode) {
+      if (updates === 4 || modelLabOpen) accumulator = 0;
+      if(!modelLabOpen)updateVisualBody(delta);
+      if(modelLabOpen){
+        const radius=modelCamDistance;
+        const elevation=modelCamElev;
+        cameraDesired.set(position.x+Math.sin(modelCamAngle)*Math.cos(elevation)*radius,
+          position.y+Math.sin(elevation)*radius,position.z+Math.cos(modelCamAngle)*Math.cos(elevation)*radius);
+        cameraTarget.set(position.x,position.y+.45,position.z);
+      } else if (inspectMode) {
         // Small orbit while the vehicle stays physically simulated.
         inspectAngle += delta * .36;
         cameraDesired.set(position.x + Math.sin(inspectAngle)*7.4,
@@ -1900,7 +2195,7 @@
     frame();
   } catch (error) {
     console.error('Wreck Circuit startup failed:', error);
-    showError('Не удалось запустить 3D-сцену v0.8: ' + (error?.message || String(error)));
+    showError('Не удалось запустить 3D-сцену v1.2: ' + (error?.message || String(error)));
   }
 </script>
 </body>
