@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v1.3 — Vehicle Geometry 2.0">
-  <title>Wreck Circuit — Vehicle Geometry 2.0 v1.3</title>
+  <meta name="description" content="Wreck Circuit v1.3.1 — Vehicle Geometry 2.0">
+  <title>Wreck Circuit — Vehicle Geometry 2.0 v1.3.1</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -102,7 +102,7 @@
       #inspect-toggle { font-size: 11px; padding: 9px 7px; }
     }
 
-    /* v1.3: on-device parameterized shape editor. Hidden during driving. */
+    /* v1.3.1: on-device parameterized shape editor. Hidden during driving. */
     .model-lab-toggle[aria-pressed="true"] { background:#edc16c; color:#1c2531; }
     .model-lab-panel { display:none; position:absolute; z-index:7;
       left:max(12px,env(safe-area-inset-left)); top:72px;
@@ -158,7 +158,7 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v1.3</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v1.3.1</span></div>
     <div class="hud-actions">
       <button id="model-lab-toggle" class="restart model-lab-toggle" type="button" aria-pressed="false">◈ Модель</button>
       <button id="inspect-toggle" class="restart" type="button" aria-pressed="false" aria-label="Переключить камеру осмотра">👁 Осмотр</button>
@@ -219,7 +219,7 @@
     </div>
   </div>
   <aside id="model-lab-panel" class="model-lab-panel" aria-label="Редактор формы автомобиля" aria-hidden="true">
-    <div class="lab-model-head"><strong>CAPRICE 80s · MODEL LAB</strong><span>v1.3</span></div>
+    <div class="lab-model-head"><strong>CAPRICE 80s · MODEL LAB</strong><span>v1.3.1</span></div>
     <p class="lab-model-note">Геометрия обновляется прямо на машине. Физика остаётся настроенной на базовый кузов; повреждения после изменения формы сбрасываются.</p>
     <div class="lab-model-section">ПРОПОРЦИИ</div>
     <label class="model-param"><span class="model-param-title">Ширина кузова <output data-model-out="width">1.96 м</output></span><input type="range" data-model-param="width" min="1.85" max="2.08" step="0.01" value="1.96"></label>
@@ -447,10 +447,10 @@
 
     // Undertray does not block the wheel openings. A slim sill visually
     // connects the cabin between the front/rear arches.
-    solidPart(visualBody,'underframe',1.62,.22,4.92,sillMaterial,0,-.29,0);
+    solidPart(visualBody,'underframe',1.30,.22,4.92,sillMaterial,0,-.29,0);
     for(const side of [-1,1]){
       const name=side<0?'left':'right';
-      solidPart(visualBody,`${name}_rocker`,.11,.10,2.00,paintShade,side*.89,-.32,.03);
+      solidPart(visualBody,`${name}_rocker`,.11,.10,1.91,paintShade,side*.89,-.32,.01);
     }
     // 5.35m long, 1.94m wide, about 2.94m wheelbase. The hood and deck
     // are longer and lower than v0.9. Thin fenders lean subtly inward.
@@ -470,71 +470,64 @@
       ['front_door',-.17,.99],
       ['front_fender',.99,2.55],
     ];
-    // Rounded elliptical wheel openings. The lower margin of the sheet
-    // follows each tire's arch; 72 longitudinal samples eliminate faceting.
-    // Rear fenders are slightly skirted, typical of late-1980s sedans.
+    // The opening is a cut-out in the actual sheet metal. The same sampled
+    // boundary is shared by the fender, door corner, rolled edge and inner tub.
+    // Wheel center at rest in visualBody space: approximately y=.04.
     const archProfiles=[
-      {center:REAR_WHEEL_Z,r:.615,height:.77},
-      {center:FRONT_WHEEL_Z,r:.645,height:.815},
+      {center:REAR_WHEEL_Z,r:.445,height:.805},
+      {center:FRONT_WHEEL_Z,r:.485,height:.83},
     ];
     function archLower(z){
       let h=-.39;
       for(const {center,r,height} of archProfiles){
-        const dz=z-center;
-        if(Math.abs(dz)<r)h=Math.max(h,-.39+height*Math.sqrt(Math.max(0,1-(dz/r)**2)));
+        const t=Math.abs(z-center)/r;
+        if(t<1) h=Math.max(h,-.39+height*Math.pow(Math.max(0,1-Math.pow(t,3)),.72));
       }
       return h;
+    }
+    function beltHeight(z){
+      if(z>.99)return .508-.053*(z-.99)/1.55;
+      if(z< -1.58)return .476+.010*Math.sin(Math.PI*(z+2.54)/.96);
+      return .49;
+    }
+    function skinX(z,v){
+      return BODY_HALF_WIDTH-.033*v+.018*Math.sin(v*Math.PI)-.023*Math.pow(Math.abs(z)/2.67,6);
     }
     for(const side of [-1,1]){
       const name=side<0?'left':'right';
       for(const [part,z0,z1] of bodySections){
-        surfacePart(visualBody,`${name}_${part}`,part.includes('fender')?72:24,7,(u,v)=>{
+        const n=part.includes('fender')?96:72;
+        const panel=surfacePart(visualBody,`${name}_${part}`,n,9,(u,v)=>{
           const z=z0+(z1-z0)*u;
-          const y0=archLower(z),y=y0+(.49-y0)*v;
-          // Subtle sculpted shoulder and inward taper = real metal, not cube.
-          const shoulder=.023*Math.sin(v*Math.PI)+.021*Math.exp(-Math.pow((v-.78)*7,2));
-          const endTaper=.045*Math.pow(Math.abs(z)/2.67,6);
-          const x=side*(BODY_HALF_WIDTH-.062*v+shoulder-endTaper);
-          return[x,y,z];
+          const y0=archLower(z),y=y0+(beltHeight(z)-y0)*v;
+          return[side*skinX(z,v),y,z];
         },part.includes('door')?paint:paintLight);
-      }
-      // Eight smooth arch meshes for the car, not hundreds of tiny pipes.
-      for(const {center,r,height} of archProfiles){
-        const outer=[],inner=[];
-        for(let i=0;i<=48;i++){
-          const t=i*Math.PI/48;
-          const z=center-r*Math.cos(t),y=-.39+height*Math.sin(t);
-          outer.push([side*(.978-.012*Math.abs(z)/2.7),y+.008,z]);
-          inner.push([side*.84,y-.075,z]);
-        }
-        // Continuous folded metal around the arch, rather than a tube edge.
-        const lipVertices=[],lipIndices=[];
-        for(let i=0;i<=64;i++){
-          const a=i*Math.PI/64;
-          const z=center-r*Math.cos(a), y=-.39+height*Math.sin(a);
-          const edgeX=BODY_HALF_WIDTH-.045*Math.pow(Math.abs(z)/2.67,6);
-          for(const [outerX,drop] of [[edgeX,.003],[edgeX-.036,-.014],[edgeX-.115,-.042]]){
-            lipVertices.push(side*outerX,y+drop,z);
+        // Generate the return flange from EXACTLY the same vertices used by
+        // the outer panel. No floating trim, no second mismatched arch curve.
+        const verts=[],idx=[];
+        for(let i=0;i<n;i++){
+          const zA=z0+(z1-z0)*i/n,zB=z0+(z1-z0)*(i+1)/n;
+          const yA=archLower(zA),yB=archLower(zB);
+          if(Math.max(yA,yB)<-.3899)continue;
+          const k=verts.length/3;
+          for(const [z,y] of [[zA,yA],[zB,yB]]){
+            const x=skinX(z,0);
+            verts.push(side*x,y,z,side*(x-.022),y+.004,z,side*(x-.19),y+.028,z);
           }
+          idx.push(k,k+3,k+1,k+1,k+3,k+4,k+1,k+4,k+2,k+2,k+4,k+5);
         }
-        for(let i=0;i<64;i++)for(let ring=0;ring<2;ring++){
-          const a=i*3+ring,b=a+1,c=a+3,d=c+1;
-          lipIndices.push(a,c,b,b,c,d);
+        if(verts.length){
+          const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));g.setIndex(idx);g.computeVertexNormals();
+          const mat=paintShade.clone();mat.side=THREE.DoubleSide;
+          const lip=new THREE.Mesh(g,mat);lip.name=`caprice_${name}_${part}_rolled_edge`;visualBody.add(lip);
+          if(part.includes('door'))decorateDoor(`${name}_${part}`,lip);
         }
-        const lipGeo=new THREE.BufferGeometry();
-        lipGeo.setAttribute('position',new THREE.Float32BufferAttribute(lipVertices,3));
-        lipGeo.setIndex(lipIndices);
-        lipGeo.computeVertexNormals();
-        const lip=new THREE.Mesh(lipGeo,paintShade);
-        lip.name=`caprice_${name}_${center>0?'front':'rear'}_arch_lip`;
-        visualBody.add(lip);
-        curvedTrim(visualBody,inner,.019,rubberTrim);
       }
-      // The sill moldings stop at the wheel openings; no chrome crossing tires.
-      const lengths=[[-2.52,-2.11],[-.86,.84],[2.15,2.53]];
+      // Lower chrome and rubber strips are clipped to the actual opening.
+      const lengths=[[-2.52,-1.48-.445-.025],[-1.48+.445+.025,1.48-.485-.025],[1.48+.485+.025,2.53]];
       for(const [a,b] of lengths){
-        edge(visualBody,[side*.996,-.12,a],[side*.996,-.12,b],.011,chrome);
-        edge(visualBody,[side*.965,-.16,a],[side*.965,-.16,b],.014,rubberTrim);
+        edge(visualBody,[side*.995,-.12,a],[side*.995,-.12,b],.009,chrome);
+        edge(visualBody,[side*.982,-.16,a],[side*.982,-.16,b],.010,rubberTrim);
       }
       // Separate body crease into pieces that stay attached to each door.
       for(const [a,b,id] of [[-2.53,-1.40,null],[-1.40,-.17,'rear'],[-.17,.99,'front'],[.99,2.54,null]]){
@@ -543,7 +536,7 @@
       }
       // Door shutlines; the underlying dark jamb stays after a door flies off.
       for(const z of [-1.40,-.17,.99]){
-        edge(visualBody,[side*.963,-.25,z],[side*.914,.49,z],.009,rubberTrim);
+        edge(visualBody,[side*(skinX(z,0)+.002),Math.max(-.25,archLower(z)+.012),z],[side*(skinX(z,1)+.002),beltHeight(z),z],.005,rubberTrim);
       }
       for(const [id,z] of [['front',.59],['rear',-.58]]){
         const key=`${name}_${id}_door`;
@@ -1841,7 +1834,7 @@
       for (let i=0; i < 4; i++) {
         const w = wheels[i], a = w.anchor;
         const len = vehicle.wheelSuspensionLength(i) ?? WHEEL_REST_LENGTH;
-        w.pivot.position.set(a.x,a.y-len,a.z);
+        w.pivot.position.set(a.x-Math.sign(a.x)*.12,a.y-len,a.z);
         // The pivot steers, the tire rolls. Steering is physical, not cosmetic.
         w.pivot.rotation.y = vehicle.wheelSteering(i) ?? 0;
         w.spinner.rotation.x = -(vehicle.wheelRotation(i) ?? 0);
@@ -2005,7 +1998,7 @@
     }
 
 
-    // ---------- v1.3 parametric body shape: reproducible, reversible morph ----------
+    // ---------- v1.3.1 parametric body shape: reproducible, reversible morph ----------
     // A baseline car is constructed from procedural panels above. The editor
     // regenerates *mesh vertices* from immutable baseline buffers, so it never
     // accumulates floating-point drift and each named damage part survives.
@@ -2017,7 +2010,7 @@
     });
     let modelProfile={...MODEL_DEFAULT};
     let modelLabOpen=false;
-    let modelCamAngle=.82, modelCamElev=.34, modelCamDistance=9;
+    let modelCamAngle=.82, modelCamElev=.34, modelCamDistance=7.4;
     const modelPanel=document.getElementById('model-lab-panel');
     const modelLabButton=document.getElementById('model-lab-toggle');
     const modelStatus=document.getElementById('model-lab-status');
@@ -2053,7 +2046,7 @@
       else if(sourceZ<-.18)p.z-=(profile.rake/100)*roofWeight*smooth(.18,.80,-sourceZ);
       p.x=sourceX*(profile.width/MODEL_DEFAULT.width);
       // Smoothly lift the inner edges of both wheel arches. Radius is held
-      // fixed because physics wheel positions are not regenerated in v1.3.
+      // fixed because physics wheel positions are not regenerated in v1.3.1.
       if(Math.abs(sourceX)>.76 && sourceY<.49){
         const dz=Math.min(Math.abs(sourceZ-1.48),Math.abs(sourceZ+1.48));
         if(dz<.73){
@@ -2124,7 +2117,7 @@
         inspectButton.setAttribute('aria-pressed','false');
         inspectButton.textContent='👁 Осмотр';
         resetCar();
-        modelCamAngle=.82;modelCamElev=.34;modelCamDistance=9;
+        modelCamAngle=.82;modelCamElev=.34;modelCamDistance=7.4;
         accumulator=0;
       }else{
         resetCar();
@@ -2242,7 +2235,7 @@
     frame();
   } catch (error) {
     console.error('Wreck Circuit startup failed:', error);
-    showError('Не удалось запустить 3D-сцену v1.3: ' + (error?.message || String(error)));
+    showError('Не удалось запустить 3D-сцену v1.3.1: ' + (error?.message || String(error)));
   }
 </script>
 </body>
