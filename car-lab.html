@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Vehicle Generator 3.1 — Caprice 80s Geometry Lab</title>
+  <title>Vehicle Generator 3.1.1 — Caprice 80s Geometry Lab</title>
   <style>
     :root{
       --bg:#c8cdd3;
@@ -99,7 +99,7 @@
 
 <div id="topbar">
   <div id="brand">
-    <div class="title">VEHICLE GENERATOR 3.1</div>
+    <div class="title">VEHICLE GENERATOR 3.1.1</div>
     <div class="sub">Caprice 80s · Geometry Lab</div>
     <div class="meta">Visual refinement pass — body, details, interior, materials</div>
   </div>
@@ -173,9 +173,13 @@
   </div>
 </div>
 
+<div id="startup-error" style="display:none;position:fixed;top:45%;left:8%;right:8%;z-index:100;background:#212a36;color:white;padding:18px;border-radius:12px"></div>
+<script>window.addEventListener('error',e=>{const b=document.getElementById('startup-error');b.style.display='block';b.textContent='Ошибка: '+(e.message||'Не удалось загрузить библиотеку Three.js')});window.addEventListener('unhandledrejection',e=>{const b=document.getElementById('startup-error');b.style.display='block';b.textContent='Ошибка: '+String(e.reason)});</script>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}</script>
 <script type="module">
-import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+try {
+const THREE = await import('three');
+const {OrbitControls} = await import('https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js');
 
 const mount = document.getElementById('app');
 const scene = new THREE.Scene();
@@ -297,7 +301,7 @@ function bindRange(id, prop, cb){
     val.textContent = fmt(params[prop]);
     cb?.();
   };
-  refresh();
+  val.textContent = fmt(parseFloat(el.value));
   el.addEventListener('input', refresh);
 }
 bindRange("rideHeight","rideHeight", rebuildCar);
@@ -355,9 +359,9 @@ function applyView(){
   const d = 7.6;
   const map = {
     q34:[ d, 3.0, d],
-    side:[ 0.0, 1.6, d*1.12],
-    front:[ 0.0, 1.7, -d],
-    rear:[ 0.0, 1.7, d],
+    side:[ d*1.12, 1.0, 0.0],
+    front:[ 0.0, 1.0, -d],
+    rear:[ 0.0, 1.0, d],
     top:[ 0.01, 10.2, 0.01],
   };
   const p = map[currentView];
@@ -590,7 +594,7 @@ function createCar(p){
   for(let i=-8;i<=8;i++){
     if(i===0) continue;
     const slat = mesh(new THREE.BoxGeometry(0.012, 0.16, 0.055), matsLocal.chrome, false, false);
-    slat.position.set(i*0.028, 0, 0.002);
+    slat.position.set(i*0.028, 0.73, noseZ - 0.004);
     grille.add(slat);
   }
   grille.position.y = 0.0;
@@ -776,7 +780,7 @@ function createCar(p){
   const wheels = new THREE.Group();
   function placeWheel(x,z){
     const w = createWheel(p);
-    w.position.set(x, p.rideHeight + p.wheelRadius, z);
+    w.position.set(x, p.wheelRadius, z);
     wheels.add(w);
   }
   placeWheel(-halfTrack, frontAxleZ);
@@ -804,7 +808,7 @@ let mats = createMaterials();
 function rebuildCar(){
   updateBadge();
   mats = createMaterials();
-  if(bodyGroup) carRoot.remove(bodyGroup);
+  if(bodyGroup) { const materials=new Set(); bodyGroup.traverse(o=>{if(o.isMesh){o.geometry.dispose();materials.add(o.material)}});for(const m of materials)m.dispose();carRoot.remove(bodyGroup); }
   if(wireHelper){ carRoot.remove(wireHelper); wireHelper = null; }
 
   bodyGroup = createCar(params);
@@ -813,26 +817,7 @@ function rebuildCar(){
   studioShadow.scale.set(1.30, 1.0, 2.2);
   studioShadow.position.y = 0.01;
 
-  if(doorState.wire){
-    wireHelper = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(5.5,1.6,2.1)),
-      new THREE.LineBasicMaterial({color:0x0f1720})
-    );
-    // instead of crude box, create edges from merged car impossible here quickly; use recursive group edges
-    const wg = new THREE.Group();
-    bodyGroup.traverse(obj=>{
-      if(obj.isMesh && obj.geometry){
-        const e = new THREE.LineSegments(new THREE.EdgesGeometry(obj.geometry), new THREE.LineBasicMaterial({color:0x253140, transparent:true, opacity:0.55}));
-        e.position.copy(obj.position);
-        e.rotation.copy(obj.rotation);
-        e.scale.copy(obj.scale);
-        obj.parent.add(e);
-        if(!wireHelper) wireHelper = new THREE.Group();
-        wireHelper.add(e);
-      }
-    });
-    if(wireHelper) carRoot.add(wireHelper);
-  }
+  if(doorState.wire) bodyGroup.traverse(o=>{if(o.isMesh)o.material.wireframe=true;});
 
   // update HUD after possible changed total length
   hudBadge.textContent = `База ${params.wheelbase.toFixed(2)} м · длина ~${params.length.toFixed(2)} м · ширина ~${params.width.toFixed(2)} м · посадка ~${Math.round(params.rideHeight*100)} см`;
@@ -879,6 +864,7 @@ renderer.setAnimationLoop(()=>{
   controls.update();
   renderer.render(scene, camera);
 });
+} catch(e) { console.error(e); const b=document.getElementById('startup-error'); b.style.display='block'; b.textContent='Ошибка запуска: '+e.message; }
 </script>
 </body>
 </html>
