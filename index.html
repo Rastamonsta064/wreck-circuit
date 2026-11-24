@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#87929e">
-  <meta name="description" content="Wreck Circuit v1.2 — Parametric Vehicle Lab">
-  <title>Wreck Circuit — Parametric Vehicle Lab v1.2</title>
+  <meta name="description" content="Wreck Circuit v1.3 — Vehicle Geometry 2.0">
+  <title>Wreck Circuit — Vehicle Geometry 2.0 v1.3</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -102,7 +102,7 @@
       #inspect-toggle { font-size: 11px; padding: 9px 7px; }
     }
 
-    /* v1.2: on-device parameterized shape editor. Hidden during driving. */
+    /* v1.3: on-device parameterized shape editor. Hidden during driving. */
     .model-lab-toggle[aria-pressed="true"] { background:#edc16c; color:#1c2531; }
     .model-lab-panel { display:none; position:absolute; z-index:7;
       left:max(12px,env(safe-area-inset-left)); top:72px;
@@ -158,7 +158,7 @@
 <main id="app">
   <canvas id="game" aria-label="Трёхмерная арена, автомобиль и управление"></canvas>
   <div class="hud">
-    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v1.2</span></div>
+    <div class="speed-card" aria-label="Скорость автомобиля"><span id="speed" class="speed-number">0</span><span class="speed-unit">км/ч</span><span id="gear" class="gear">N</span><span class="version">v1.3</span></div>
     <div class="hud-actions">
       <button id="model-lab-toggle" class="restart model-lab-toggle" type="button" aria-pressed="false">◈ Модель</button>
       <button id="inspect-toggle" class="restart" type="button" aria-pressed="false" aria-label="Переключить камеру осмотра">👁 Осмотр</button>
@@ -219,7 +219,7 @@
     </div>
   </div>
   <aside id="model-lab-panel" class="model-lab-panel" aria-label="Редактор формы автомобиля" aria-hidden="true">
-    <div class="lab-model-head"><strong>CAPRICE 80s · MODEL LAB</strong><span>v1.2</span></div>
+    <div class="lab-model-head"><strong>CAPRICE 80s · MODEL LAB</strong><span>v1.3</span></div>
     <p class="lab-model-note">Геометрия обновляется прямо на машине. Физика остаётся настроенной на базовый кузов; повреждения после изменения формы сбрасываются.</p>
     <div class="lab-model-section">ПРОПОРЦИИ</div>
     <label class="model-param"><span class="model-param-title">Ширина кузова <output data-model-out="width">1.96 м</output></span><input type="range" data-model-param="width" min="1.85" max="2.08" step="0.01" value="1.96"></label>
@@ -284,6 +284,29 @@
     const sun = new THREE.DirectionalLight(0xffffff, 2.0);
     sun.position.set(-18, 35, -22);
     scene.add(sun);
+    renderer.toneMapping=THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure=1.15;
+    // Locally generated studio/sky reflection map. No downloaded textures.
+    const envCanvas=document.createElement('canvas');envCanvas.width=512;envCanvas.height=256;
+    const ec=envCanvas.getContext('2d');
+    const sky=ec.createLinearGradient(0,0,0,256);
+    sky.addColorStop(0,'#718ba8');sky.addColorStop(.44,'#d8e4eb');sky.addColorStop(.51,'#b8b7ad');sky.addColorStop(1,'#45484a');
+    ec.fillStyle=sky;ec.fillRect(0,0,512,256);
+    ec.fillStyle='#fff8e8';ec.fillRect(55,40,90,25);
+    ec.fillStyle='#dceafa';ec.fillRect(290,58,125,18);
+    const envTex=new THREE.CanvasTexture(envCanvas);envTex.colorSpace=THREE.SRGBColorSpace;
+    envTex.mapping=THREE.EquirectangularReflectionMapping;
+    const pmrem=new THREE.PMREMGenerator(renderer);
+    const envRT=pmrem.fromEquirectangular(envTex);scene.environment=envRT.texture;
+    envTex.dispose();pmrem.dispose();
+    scene.environmentIntensity=.8;
+    // Soft contact shadow, independent of the rigid body and wheel solver.
+    const shadowCanvas=document.createElement('canvas');shadowCanvas.width=shadowCanvas.height=128;
+    const sh=shadowCanvas.getContext('2d');const grad=sh.createRadialGradient(64,64,8,64,64,64);
+    grad.addColorStop(0,'rgba(0,0,0,.55)');grad.addColorStop(.55,'rgba(0,0,0,.36)');grad.addColorStop(1,'rgba(0,0,0,0)');
+    sh.fillStyle=grad;sh.fillRect(0,0,128,128);
+    const shadow=new THREE.Mesh(new THREE.PlaneGeometry(3.2,6.6),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(shadowCanvas),transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2}));
+    shadow.rotation.x=-Math.PI/2;shadow.position.y=.018;scene.add(shadow);
 
     const material = (color) => new THREE.MeshLambertMaterial({ color });
     const floorMat = material(0x9aa0a5);
@@ -331,10 +354,10 @@
     // visualBody is lowered relative to the chassis: a low greenhouse, not an SUV.
     visualBody.position.y=-.50;
     const bodyParts=new Map();
-    const paint=new THREE.MeshStandardMaterial({color:0xb8a17a,metalness:.23,roughness:.48,side:THREE.DoubleSide});
-    const paintLight=new THREE.MeshStandardMaterial({color:0xc7b38f,metalness:.21,roughness:.44,side:THREE.DoubleSide});
+    const paint=new THREE.MeshStandardMaterial({color:0xa18a64,metalness:.46,roughness:.34,side:THREE.DoubleSide});
+    const paintLight=new THREE.MeshStandardMaterial({color:0xa18a64,metalness:.46,roughness:.34,side:THREE.DoubleSide});
     const paintShade=new THREE.MeshStandardMaterial({color:0x897354,metalness:.19,roughness:.57,side:THREE.DoubleSide});
-    const windowGlass=new THREE.MeshStandardMaterial({color:0x263b48,metalness:.20,roughness:.21,side:THREE.DoubleSide});
+    const windowGlass=new THREE.MeshStandardMaterial({color:0x182b38,metalness:.48,roughness:.17,side:THREE.DoubleSide});
     const windowTrim=material(0x1a2023);
     const chrome=new THREE.MeshStandardMaterial({color:0xc5cac6,metalness:.75,roughness:.22});
     const polishedChrome=new THREE.MeshStandardMaterial({color:0xe0e0d8,metalness:.72,roughness:.18});
@@ -371,6 +394,20 @@
       for(let v=0;v<vSteps;v++) for(let u=0;u<uSteps;u++){
         const a=v*(uSteps+1)+u,b=a+1,c=a+uSteps+1,d=c+1;
         indices.push(a,c,b,b,c,d);
+      }
+      if(name==='hood'||name==='trunk'||name.endsWith('_door')){
+        const n=coordinates.length/3,outerIndices=indices.slice();
+        const side=name.startsWith('left')?-1:1;
+        for(let i=0;i<n;i++){
+          const j=i*3;
+          coordinates.push(coordinates[j]-(name.endsWith('_door')?side*.035:0),coordinates[j+1]-(name.endsWith('_door')?0:.022),coordinates[j+2]);
+        }
+        for(let i=0;i<outerIndices.length;i+=3)indices.push(n+outerIndices[i],n+outerIndices[i+2],n+outerIndices[i+1]);
+        const rim=[];for(let u=0;u<=uSteps;u++)rim.push(u);
+        for(let v=1;v<=vSteps;v++)rim.push(v*(uSteps+1)+uSteps);
+        for(let u=uSteps-1;u>=0;u--)rim.push(vSteps*(uSteps+1)+u);
+        for(let v=vSteps-1;v>=1;v--)rim.push(v*(uSteps+1));
+        for(let i=0;i<rim.length;i++){const a=rim[i],b=rim[(i+1)%rim.length];indices.push(a,b,n+a,b,n+b,n+a);}
       }
       const g=new THREE.BufferGeometry();
       g.setAttribute('position',new THREE.Float32BufferAttribute(coordinates,3));
@@ -428,8 +465,8 @@
       return object;
     }
     const bodySections=[
-      ['rear_fender',-2.55,-.97],
-      ['rear_door',-.97,-.17],
+      ['rear_fender',-2.55,-1.40],
+      ['rear_door',-1.40,-.17],
       ['front_door',-.17,.99],
       ['front_fender',.99,2.55],
     ];
@@ -455,8 +492,9 @@
           const z=z0+(z1-z0)*u;
           const y0=archLower(z),y=y0+(.49-y0)*v;
           // Subtle sculpted shoulder and inward taper = real metal, not cube.
-          const shoulder=.013*Math.sin(v*Math.PI)+.018*Math.exp(-Math.pow((v-.83)*7,2));
-          const x=side*(BODY_HALF_WIDTH-.085*v+shoulder-.012*Math.abs(z)/2.7);
+          const shoulder=.023*Math.sin(v*Math.PI)+.021*Math.exp(-Math.pow((v-.78)*7,2));
+          const endTaper=.045*Math.pow(Math.abs(z)/2.67,6);
+          const x=side*(BODY_HALF_WIDTH-.062*v+shoulder-endTaper);
           return[x,y,z];
         },part.includes('door')?paint:paintLight);
       }
@@ -474,7 +512,8 @@
         for(let i=0;i<=64;i++){
           const a=i*Math.PI/64;
           const z=center-r*Math.cos(a), y=-.39+height*Math.sin(a);
-          for(const [outerX,drop] of [[.991,.003],[.947,-.014],[.866,-.066]]){
+          const edgeX=BODY_HALF_WIDTH-.045*Math.pow(Math.abs(z)/2.67,6);
+          for(const [outerX,drop] of [[edgeX,.003],[edgeX-.036,-.014],[edgeX-.115,-.042]]){
             lipVertices.push(side*outerX,y+drop,z);
           }
         }
@@ -498,12 +537,12 @@
         edge(visualBody,[side*.965,-.16,a],[side*.965,-.16,b],.014,rubberTrim);
       }
       // Separate body crease into pieces that stay attached to each door.
-      for(const [a,b,id] of [[-2.53,-.97,null],[-.97,-.17,'rear'],[-.17,.99,'front'],[.99,2.54,null]]){
+      for(const [a,b,id] of [[-2.53,-1.40,null],[-1.40,-.17,'rear'],[-.17,.99,'front'],[.99,2.54,null]]){
         const trim=edge(visualBody,[side*.959,.464,a],[side*.959,.464,b],.010,paintShade);
         if(id)decorateDoor(`${name}_${id}_door`,trim);
       }
       // Door shutlines; the underlying dark jamb stays after a door flies off.
-      for(const z of [-.97,-.17,.99]){
+      for(const z of [-1.40,-.17,.99]){
         edge(visualBody,[side*.963,-.25,z],[side*.914,.49,z],.009,rubberTrim);
       }
       for(const [id,z] of [['front',.59],['rear',-.58]]){
@@ -593,10 +632,10 @@
     // Dark bays become visible as soon as bonnet or bootlid is detached.
     const bayMaterial=new THREE.MeshLambertMaterial({color:0x23282b,side:THREE.DoubleSide});
     const engineMaterial=new THREE.MeshLambertMaterial({color:0x666c6c});
-    block(visualBody,1.52,.04,1.53,bayMaterial,0,.37,1.78);
-    block(visualBody,1.02,.13,.80,engineMaterial,0,.39,1.68);
-    block(visualBody,.70,.10,.63,grilleMat,0,.48,1.65);
-    block(visualBody,.36,.15,.32,sillMaterial,-.45,.48,1.91);
+    block(visualBody,1.52,.04,1.53,bayMaterial,0,.19,1.78);
+    block(visualBody,1.02,.12,.80,engineMaterial,0,.30,1.68);
+    block(visualBody,.70,.08,.63,grilleMat,0,.38,1.65);
+    block(visualBody,.36,.10,.32,sillMaterial,-.45,.36,1.91);
     block(visualBody,1.55,.035,.89,bayMaterial,0,.37,-2.06);
 
     // Wide 1980s four-lamp face: two sealed-beam units on each side, with
@@ -662,6 +701,7 @@
       decal.rotation.y=side*Math.PI/2;
       decal.position.set(side*1.014,.14,.46);
       visualBody.add(decal);
+      decorateDoor(`${side<0?'left':'right'}_front_door`,decal);
     }
     const roofNumber=new THREE.Mesh(new THREE.PlaneGeometry(.53,.53),numberMaterial);
     roofNumber.rotation.x=-Math.PI/2;
@@ -674,8 +714,9 @@
     const upholstery=new THREE.MeshLambertMaterial({color:0x4a4137});
     block(visualBody,1.55,.09,2.35,interior,0,-.24,-.16);
     for(const side of [-1,1]){
-      const shell=block(visualBody,.035,.69,1.82,interior,side*.735,.02,-.09);
-      shell.name=`caprice_${side<0?'left':'right'}_door_cavity`;
+      // Open door apertures: only sills and pillars, not a solid wall.
+      block(visualBody,.12,.15,2.35,interior,side*.80,-.24,-.19);
+      for(const z of [-1.42,-.18,.98])block(visualBody,.10,.68,.11,interior,side*.83,.10,z);
       for(const z of [-.60,.46]){
         block(visualBody,.49,.18,.45,upholstery,side*.39,-.055,z);
         block(visualBody,.49,.48,.11,upholstery,side*.39,.21,z-.13);
@@ -921,7 +962,11 @@
     ];
     const wheels = [];
     // Modernized stock steel wheels with hubcaps and whitewall rings.
-    const tireGeometry=new THREE.CylinderGeometry(WHEEL_RADIUS,WHEEL_RADIUS,.285,24);
+    const tireGeometry=new THREE.LatheGeometry([
+      new THREE.Vector2(.225,-.143),new THREE.Vector2(.30,-.143),new THREE.Vector2(.337,-.125),
+      new THREE.Vector2(.35,-.095),new THREE.Vector2(.35,.095),new THREE.Vector2(.337,.125),
+      new THREE.Vector2(.30,.143),new THREE.Vector2(.225,.143),new THREE.Vector2(.225,-.143)
+    ],32);
     tireGeometry.rotateZ(Math.PI/2);
     const hubGeometry=new THREE.CylinderGeometry(.187,.187,.018,24);
     hubGeometry.rotateZ(Math.PI/2);
@@ -1960,7 +2005,7 @@
     }
 
 
-    // ---------- v1.2 parametric body shape: reproducible, reversible morph ----------
+    // ---------- v1.3 parametric body shape: reproducible, reversible morph ----------
     // A baseline car is constructed from procedural panels above. The editor
     // regenerates *mesh vertices* from immutable baseline buffers, so it never
     // accumulates floating-point drift and each named damage part survives.
@@ -2008,7 +2053,7 @@
       else if(sourceZ<-.18)p.z-=(profile.rake/100)*roofWeight*smooth(.18,.80,-sourceZ);
       p.x=sourceX*(profile.width/MODEL_DEFAULT.width);
       // Smoothly lift the inner edges of both wheel arches. Radius is held
-      // fixed because physics wheel positions are not regenerated in v1.2.
+      // fixed because physics wheel positions are not regenerated in v1.3.
       if(Math.abs(sourceX)>.76 && sourceY<.49){
         const dz=Math.min(Math.abs(sourceZ-1.48),Math.abs(sourceZ+1.48));
         if(dz<.73){
@@ -2180,11 +2225,13 @@
           position.y + 3.45, position.z + Math.cos(inspectAngle)*7.4);
         cameraTarget.set(position.x,position.y+.22,position.z);
       } else {
-        cameraDesired.set(position.x - forward.x * 12.5, position.y + 7.5, position.z - forward.z * 12.5);
-        cameraTarget.set(position.x + forward.x * 3.5, position.y + .4, position.z + forward.z * 3.5);
+        cameraDesired.set(position.x - forward.x * 9.3, position.y + 4.9, position.z - forward.z * 9.3);
+        cameraTarget.set(position.x + forward.x * 2.1, position.y + .4, position.z + forward.z * 2.1);
       }
       camera.position.lerp(cameraDesired, 1 - Math.exp(-4.8 * delta));
       camera.lookAt(cameraTarget);
+      shadow.position.x=position.x;shadow.position.z=position.z;
+      shadow.rotation.set(-Math.PI/2,0,Math.atan2(forward.x,forward.z));
       renderer.render(scene, camera);
       requestAnimationFrame(frame);
       } catch (error) {
@@ -2195,7 +2242,7 @@
     frame();
   } catch (error) {
     console.error('Wreck Circuit startup failed:', error);
-    showError('Не удалось запустить 3D-сцену v1.2: ' + (error?.message || String(error)));
+    showError('Не удалось запустить 3D-сцену v1.3: ' + (error?.message || String(error)));
   }
 </script>
 </body>
